@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}价格报警 - ETH EMA 预警系统{% endblock %}
+
+{% block content %}
+
+<!-- 当前价格 -->
+<div class="card">
+    <h2>🎯 设置价格报警</h2>
+    <div style="text-align: center; padding: 20px 0;">
+        <div class="small">ETH 当前价格</div>
+        <div class="price">{{ current_price|format_price if current_price else '--' }}</div>
+    </div>
+    <form method="POST" action="{{ url_for('new_price_alert') }}">
+        <div class="form-group">
+            <label>报警方向</label>
+            <div class="btn-group">
+                <button type="button" onclick="selectDir('above')" id="dir-above"
+                    style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">🔼 价格高于</button>
+                <button type="button" onclick="selectDir('below')" id="dir-below"
+                    style="background: rgba(239, 68, 68, 0.2); color: #94a3b8;">🔽 价格低于</button>
+            </div>
+            <input type="hidden" name="direction" id="dir-input" value="above">
+        </div>
+        <div class="form-group">
+            <label>目标价格 (USD)</label>
+            <input type="number" step="0.01" name="target_price" placeholder="例如: 1800.00" required class="price-input">
+        </div>
+        <div class="form-group">
+            <label>备注 (可选)</label>
+            <input type="text" name="note" placeholder="例如: 做空入场位">
+        </div>
+        <button type="submit" class="btn-success" style="width: 100%;">🔔 设置报警</button>
+    </form>
+</div>
+
+<!-- 现有报警列表 -->
+<div class="card">
+    <h2>📋 价格报警列表</h2>
+    {% if alerts %}
+    {% for alert in alerts %}
+    <div style="background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+                {% if alert.direction == 'above' %}
+                    <span class="badge badge-green">🔼 高于</span>
+                {% else %}
+                    <span class="badge badge-red">🔽 低于</span>
+                {% endif %}
+                {% if alert.get('triggered') %}
+                    <span class="badge badge-gray" style="margin-left: 6px;">已触发</span>
+                {% else %}
+                    <span class="badge badge-yellow" style="margin-left: 6px;">监控中</span>
+                {% endif %}
+            </div>
+            <div style="font-size: 20px; font-weight: 800; color: #f97316;">
+                ${{ '%.2f'|format(alert.target_price) }}
+            </div>
+        </div>
+        <div class="small" style="margin-bottom: 8px;">
+            📅 {{ alert.created_at }}
+            {% if alert.note %}
+                · 📝 {{ alert.note }}
+            {% endif %}
+            {% if alert.get('triggered') %}
+                <br>✅ 触发于: {{ alert.get('triggered_at', '') }} @ ${{ '%.2f'|format(alert.get('triggered_price', 0)) }}
+            {% endif %}
+        </div>
+        <div class="btn-group">
+            {% if alert.get('triggered') %}
+                <a href="{{ url_for('reset_price_alert', alert_id=alert.id) }}" style="flex: 1; text-decoration: none;">
+                    <button>🔄 重新启用</button>
+                </a>
+            {% endif %}
+            <a href="{{ url_for('delete_price_alert', alert_id=alert.id) }}" onclick="return confirm('删除此报警？')" style="flex: 1; text-decoration: none;">
+                <button class="btn-danger">🗑️ 删除</button>
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty">
+        <div class="icon">🔕</div>
+        暂无价格报警<br><span class="small">添加报警，价格到达时立即邮件通知</span>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function selectDir(dir) {
+    document.getElementById('dir-input').value = dir;
+    if (dir == 'above') {
+        document.getElementById('dir-above').style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        document.getElementById('dir-above').style.color = '#fff';
+        document.getElementById('dir-below').style.background = 'rgba(239, 68, 68, 0.2)';
+        document.getElementById('dir-below').style.color = '#94a3b8';
+    } else {
+        document.getElementById('dir-below').style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        document.getElementById('dir-below').style.color = '#fff';
+        document.getElementById('dir-above').style.background = 'rgba(16, 185, 129, 0.2)';
+        document.getElementById('dir-above').style.color = '#94a3b8';
+    }
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block title %}交易记录 - ETH EMA 预警系统{% endblock %}
+
+{% block content %}
+
+<!-- 总统计 -->
+<div class="card">
+    <h2>📈 交易统计</h2>
+    <div class="grid-3">
+        <div class="stat-card">
+            <div class="num">{{ stats['total'] }}</div>
+            <div class="label">总单数</div>
+        </div>
+        <div class="stat-card">
+            <div class="num" style="color: #10b981;">{{ stats['win_rate'] }}%</div>
+            <div class="label">胜率</div>
+        </div>
+        <div class="stat-card">
+            <div class="num" style="color: {{ '#10b981' if stats['avg_pnl'] > 0 else '#ef4444' }};">{{ '+' if stats['avg_pnl'] > 0 }}{{ stats['avg_pnl'] }}%</div>
+            <div class="label">平均盈亏</div>
+        </div>
+    </div>
+</div>
+
+<!-- 每周统计 -->
+{% if weekly_summary %}
+<div class="card">
+    <h2>📅 每周统计</h2>
+    {% for week in weekly_summary %}
+    <div class="list-item">
+        <div>
+            <div style="font-weight: 600; font-size: 14px;">{{ week.range }}</div>
+            <div class="small">{{ week.week }}</div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-weight: 700; font-size: 14px;">
+                {{ week.stats.wins }}胜 {{ week.stats.losses }}负
+            </div>
+            <div class="small">
+                胜率 {{ week.stats.win_rate }}%
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- 新增交易按钮 -->
+<a href="{{ url_for('new_trade') }}" style="text-decoration: none;">
+    <button style="margin-bottom: 16px;">➕ 新增交易记录</button>
+</a>
+
+<!-- 持仓中 -->
+{% set open_trades = trades if trades else [] %}
+{% set has_open = false %}
+
+<!-- 交易列表 -->
+<div class="card">
+    <h2>📊 所有交易</h2>
+    {% if trades %}
+    {% for trade in trades %}
+    <div style="background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+                <span class="badge {{ 'badge-green' if trade['direction'] == 'long' else 'badge-red' }}">
+                    {% if trade['direction'] == 'long' %}🟢 做多{% else %}🔴 做空{% endif %}
+                </span>
+                <span class="badge badge-blue" style="margin-left: 6px;">{{ trade['timeframe'] }}</span>
+                {% if trade['status'] == 'open' %}
+                    <span class="badge badge-yellow" style="margin-left: 6px;">持仓中</span>
+                {% endif %}
+            </div>
+            <div style="text-align: right;">
+                {% if trade['status'] != 'open' %}
+                    <span style="font-weight: 800; color: {{ '#10b981' if trade['pnl_pct'] > 0 else '#ef4444' }}; font-size: 18px;">
+                        {{ '+' if trade['pnl_pct'] > 0 else '' }}{{ trade['pnl_pct'] }}%
+                    </span>
+                {% else %}
+                    <span class="small" style="color: #f59e0b;">未平仓</span>
+                {% endif %}
+            </div>
+        </div>
+        <div style="font-size: 13px; color: #94a3b8; line-height: 1.8;">
+            <div>开仓：{{ trade['open_price']|format_price }} · {{ trade['open_time'] }}</div>
+            {% if trade['status'] != 'open' %}
+                <div>平仓：{{ trade['close_price']|format_price }} · {{ trade.get('close_time', '') }}</div>
+            {% endif %}
+            {% if trade.get('note') %}
+                <div style="color: #a5b4fc;">📝 {{ trade['note'] }}</div>
+            {% endif %}
+            {% if trade.get('close_note') %}
+                <div style="color: #fbbf24;">💡 {{ trade['close_note'] }}</div>
+            {% endif %}
+        </div>
+        <div style="margin-top: 10px; display: flex; gap: 8px;">
+            {% if trade['status'] == 'open' %}
+                <a href="{{ url_for('close_trade', trade_id=trade['id']) }}" style="flex: 1; text-decoration: none;">
+                    <button class="btn-success">💰 记录平仓</button>
+                </a>
+            {% endif %}
+            <a href="{{ url_for('delete_trade', trade_id=trade['id']) }}" onclick="return confirm('确定要删除这条记录吗？')" style="flex: 1; text-decoration: none;">
+                <button class="btn-danger">🗑️ 删除</button>
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty">
+        <div class="icon">📊</div>
+        暂无交易记录<br>
+        <span class="small">点击上方按钮记录你的第一单</span>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

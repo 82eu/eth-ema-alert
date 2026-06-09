@@ -1,0 +1,7 @@
+# 忽略配置和历史文件（可选择是否上传）
+config.yaml
+alert_history.json
+*.log
+__pycache__/
+*.pyc
+.DS_Store

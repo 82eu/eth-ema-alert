@@ -1,0 +1,42 @@
+alert:
+  call_duration: 30
+  check_interval: 60
+  cooldown_seconds: 300
+  price_update_interval: 0
+  use_email: true
+  use_phone: false
+  voice: alice
+ema_alert:
+  change_alert:
+    enabled: false
+    period_minutes: 60
+    threshold_percent: 5
+  ema_long: 250
+  ema_short: 180
+  enabled_timeframes:
+  - 15m
+  - 30m
+  - 1h
+  price_thresholds:
+    enabled: false
+    lower: 2000
+    upper: 5000
+  timeframes:
+  - 5m
+  - 15m
+  - 30m
+  - 1h
+  - 4h
+email:
+  from_email: a605951690@qq.com
+  password: ejhvguqhijrpbehh
+  smtp_port: 465
+  smtp_server: smtp.qq.com
+  to_email: a605951690@qq.com
+  use_ssl: true
+  username: a605951690@qq.com
+twilio:
+  account_sid: ACxxx
+  auth_token: xxx
+  from_number: '+12345678900'
+  to_number: '+8613800138000'

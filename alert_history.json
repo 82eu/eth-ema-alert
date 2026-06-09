@@ -1,0 +1,101 @@
+[
+  {
+    "time": "2026-06-09 07:55:36",
+    "timestamp": 1780962936.3764262,
+    "timeframe": "5m",
+    "price": 1688.47,
+    "ema_short": 1688.57,
+    "ema_long": 1684.96,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 07:55:58",
+    "timestamp": 1780962958.5874603,
+    "timeframe": "5m",
+    "price": 1688.47,
+    "ema_short": 1688.57,
+    "ema_long": 1684.96,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 07:55:58",
+    "timestamp": 1780962958.657254,
+    "timeframe": "5m",
+    "price": 1688.47,
+    "ema_short": 1688.57,
+    "ema_long": 1684.96,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 08:15:38",
+    "timestamp": 1780964138.8294497,
+    "timeframe": "5m",
+    "price": 1685.62,
+    "ema_short": 1688.47,
+    "ema_long": 1685.0,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 10:45:23",
+    "timestamp": 1780973123.8798838,
+    "timeframe": "15m",
+    "price": 1661.77,
+    "ema_short": 1663.52,
+    "ema_long": 1660.94,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 15:35:55",
+    "timestamp": 1780990555.236902,
+    "timeframe": "5m",
+    "price": 1680.39,
+    "ema_short": 1681.75,
+    "ema_long": 1679.63,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 15:55:15",
+    "timestamp": 1780991715.1579602,
+    "timeframe": "5m",
+    "price": 1680.38,
+    "ema_short": 1681.7,
+    "ema_long": 1679.66,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 17:20:50",
+    "timestamp": 1780996850.5395913,
+    "timeframe": "5m",
+    "price": 1679.54,
+    "ema_short": 1680.77,
+    "ema_long": 1679.23,
+    "signal": "开多",
+    "position": "between",
+    "alert_type": "ema_zone"
+  },
+  {
+    "time": "2026-06-09 21:14:51",
+    "timestamp": 1781010891.8042202,
+    "timeframe": "30m",
+    "price": 1676.74,
+    "ema_short": 1671.38,
+    "ema_long": 1690.47,
+    "signal": "开空",
+    "position": "between",
+    "alert_type": "ema_zone"
+  }
+]

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>{% block title %}ETH EMA 预警系统{% endblock %}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #fff; padding-bottom: 80px; }
+.container { max-width: 600px; margin: 0 auto; padding: 16px; }
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 16px; margin: -16px -16px 20px; border-radius: 0 0 24px 24px; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3); }
+.header h1 { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+.header p { font-size: 13px; opacity: 0.85; }
+.card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 16px; margin-bottom: 16px; backdrop-filter: blur(10px); }
+.card h2 { font-size: 16px; margin-bottom: 12px; color: #fff; font-weight: 700; }
+.card h3 { font-size: 14px; margin-bottom: 8px; color: #a5b4fc; font-weight: 600; }
+.price { font-size: 28px; font-weight: 800; text-align: center; color: #fff; padding: 8px 0; }
+.small { font-size: 12px; color: #94a3b8; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.badge-green { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-red { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+.badge-yellow { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-blue { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
+.badge-gray { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+button, .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border: none; padding: 12px 20px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: transform 0.1s; }
+button:active, .btn:active { transform: scale(0.96); }
+button.btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+button.btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+button.btn-secondary { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+.btn-small { padding: 8px 14px; font-size: 12px; width: auto; }
+input, select, textarea { width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15); padding: 12px 14px; border-radius: 10px; font-size: 15px; color: #fff; outline: none; transition: border-color 0.2s; }
+input:focus, select:focus, textarea:focus { border-color: #667eea; background: rgba(255, 255, 255, 0.08); }
+label { display: block; font-size: 13px; color: #a5b4fc; margin-bottom: 6px; font-weight: 600; }
+.form-group { margin-bottom: 14px; }
+.flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
+.flash-success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; }
+.flash-error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; }
+/* 底部导航 */
+.nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(20, 20, 40, 0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(255, 255, 255, 0.08); padding: 8px; display: flex; justify-content: space-around; z-index: 100; }
+.nav-item { flex: 1; text-align: center; padding: 8px 4px; color: #94a3b8; font-size: 11px; cursor: pointer; text-decoration: none; transition: color 0.2s; }
+.nav-item.active { color: #667eea; }
+.nav-item .icon { font-size: 20px; display: block; margin-bottom: 2px; }
+/* 列表 */
+.list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.list-item:last-child { border-bottom: none; }
+.list-item .label { font-size: 13px; color: #94a3b8; }
+.list-item .value { font-size: 14px; font-weight: 600; color: #fff; }
+/* 表格 */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+th { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
+/* 统计卡片 */
+.stat-card { background: rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 14px; text-align: center; }
+.stat-card .num { font-size: 24px; font-weight: 800; color: #667eea; }
+.stat-card .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+/* 价格输入 */
+.price-input { font-size: 20px; font-weight: 700; text-align: center; }
+/* 链接样式 */
+a { color: #667eea; }
+.empty { text-align: center; padding: 40px 20px; color: #64748b; font-size: 14px; }
+.empty .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+/* 行内按钮组 */
+.btn-group { display: flex; gap: 8px; }
+.btn-group button { flex: 1; }
+/* 状态点 */
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.green { background: #10b981; box-shadow: 0 0 8px #10b981; }
+.status-dot.red { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+.status-dot.yellow { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+</style>
+{% block extra_css %}{% endblock %}
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🚀 ETH EMA 预警</h1>
+        <p>24/7 监控 · 区间预警 · 交易记录</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash flash-{{ 'success' if 'success' in message.lower() else 'error' }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</div>
+
+<nav class="nav">
+    <a href="{{ url_for('dashboard') }}" class="nav-item {{ 'active' if active_page == 'dashboard' }}">
+        <span class="icon">📊</span>仪表盘
+    </a>
+    <a href="{{ url_for('trades_page') }}" class="nav-item {{ 'active' if active_page == 'trades' }}">
+        <span class="icon">📈</span>交易
+    </a>
+    <a href="{{ url_for('price_alerts_page') }}" class="nav-item {{ 'active' if active_page == 'price_alerts' }}">
+        <span class="icon">🔔</span>报警
+    </a>
+    <a href="{{ url_for('history_page') }}" class="nav-item {{ 'active' if active_page == 'history' }}">
+        <span class="icon">📝</span>历史
+    </a>
+    <a href="{{ url_for('settings_page') }}" class="nav-item {{ 'active' if active_page == 'settings' }}">
+        <span class="icon">⚙️</span>设置
+    </a>
+</nav>
+
+<script>
+// 自动刷新页面（可选）
+{% block extra_js %}{% endblock %}
+</script>
+</body>
+</html>

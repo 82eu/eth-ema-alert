@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}{{ '记录平仓' if action == 'close' else '新增交易' }} - ETH EMA 预警系统{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>{% if action == 'close' %}💰 记录平仓{% else %}📝 新增交易记录{% endif %}</h2>
+    
+    <form method="POST">
+        {% if action == 'new' %}
+        <div class="form-group">
+            <label>交易方向</label>
+            <div class="btn-group">
+                <button type="button" onclick="selectDirection('long')" id="btn-long" 
+                    style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">🟢 做多</button>
+                <button type="button" onclick="selectDirection('short')" id="btn-short"
+                    style="background: rgba(239, 68, 68, 0.3); color: #94a3b8;">🔴 做空</button>
+            </div>
+            <input type="hidden" name="direction" id="direction-input" value="{{ trade.direction if trade.direction else 'long' }}">
+        </div>
+
+        <div class="form-group">
+            <label>周期</label>
+            <select name="timeframe" id="timeframe">
+                <option value="5m" {% if trade.timeframe == '5m' %}selected{% endif %}>5分钟</option>
+                <option value="15m" {% if trade.timeframe == '15m' %}selected{% endif %}>15分钟</option>
+                <option value="30m" {% if trade.timeframe == '30m' %}selected{% endif %}>30分钟</option>
+                <option value="1h" {% if trade.timeframe == '1h' %}selected{% endif %}>1小时</option>
+                <option value="4h" {% if trade.timeframe == '4h' %}selected{% endif %}>4小时</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>开仓价格 (USD)</label>
+            <input type="number" step="0.01" name="open_price" id="open_price" 
+                value="{{ trade.open_price if trade.open_price else '' }}" 
+                placeholder="例如: 1680.50" required>
+        </div>
+
+        <div class="form-group">
+            <label>开仓时间</label>
+            <input type="text" name="open_time" 
+                value="{{ trade.open_time if trade.open_time else '' }}" 
+                placeholder="例如: 2025-06-09 14:30:00">
+        </div>
+
+        <div class="form-group">
+            <label>备注 (可选)</label>
+            <textarea name="note" rows="2" placeholder="例如: EMA区间价格入场，止损2%...">{{ trade.note if trade.note else '' }}</textarea>
+        </div>
+        
+        {% else %}
+        <!-- 平仓表单 -->
+        <div style="background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+            <div class="list-item">
+                <span class="small">方向</span>
+                <span class="badge {{ 'badge-green' if trade.direction == 'long' else 'badge-red' }}">
+                    {% if trade.direction == 'long' %}🟢 做多{% else %}🔴 做空{% endif %}
+                </span>
+            </div>
+            <div class="list-item">
+                <span class="small">周期</span>
+                <span class="value">{{ trade.timeframe }}</span>
+            </div>
+            <div class="list-item">
+                <span class="small">开仓价格</span>
+                <span class="value">{{ trade.open_price|format_price }}</span>
+            </div>
+            <div class="list-item">
+                <span class="small">开仓时间</span>
+                <span class="value">{{ trade.open_time }}</span>
+            </div>
+            {% if trade.note %}
+            <div class="list-item">
+                <span class="small">开仓备注</span>
+                <span class="value" style="font-size: 12px;">{{ trade.note }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
+            <label>平仓价格 (USD)</label>
+            <input type="number" step="0.01" name="close_price" id="close_price" 
+                value="" placeholder="例如: 1700.50" required class="price-input">
+        </div>
+
+        <div class="form-group">
+            <label>平仓时间</label>
+            <input type="text" name="close_time" 
+                value="{{ close_time if close_time else '' }}" 
+                placeholder="例如: 2025-06-09 16:45:00">
+        </div>
+
+        <div class="form-group">
+            <label>平仓备注 (可选)</label>
+            <textarea name="close_note" rows="2" placeholder="例如: 到达预设目标位止盈..."></textarea>
+        </div>
+
+        <!-- 预估盈亏显示 -->
+        <div id="pnl-preview" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 14px; text-align: center; margin-bottom: 16px;">
+            <div class="small">预估盈亏</div>
+            <div style="font-size: 28px; font-weight: 800; margin-top: 6px;" id="pnl-value">--</div>
+        </div>
+        {% endif %}
+
+        <div class="btn-group" style="margin-top: 20px;">
+            <button type="submit" class="btn-success">
+                {% if action == 'close' %}✅ 确认平仓{% else %}✅ 保存记录{% endif %}
+            </button>
+            <a href="{{ url_for('trades_page') }}" style="text-decoration: none; flex: 1;">
+                <button type="button" class="btn-danger">❌ 取消</button>
+            </a>
+        </div>
+    </form>
+</div>
+
+{% if action == 'close' %}
+<script>
+// 实时计算盈亏
+function calculatePnl() {
+    var openPrice = parseFloat("{{ trade.open_price }}");
+    var closePrice = parseFloat(document.getElementById('close_price').value);
+    var direction = "{{ trade.direction }}";
+    
+    if (isNaN(closePrice) || closePrice <= 0) {
+        document.getElementById('pnl-preview').style.display = 'none';
+        return;
+    }
+    
+    var pnl = direction == 'long' ? (closePrice - openPrice) : (openPrice - closePrice);
+    var pnlPct = pnl / openPrice * 100;
+    
+    var preview = document.getElementById('pnl-preview');
+    preview.style.display = 'block';
+    
+    if (pnl >= 0) {
+        preview.style.background = 'rgba(16, 185, 129, 0.1)';
+        preview.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+        document.getElementById('pnl-value').style.color = '#10b981';
+    } else {
+        preview.style.background = 'rgba(239, 68, 68, 0.1)';
+        preview.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        document.getElementById('pnl-value').style.color = '#ef4444';
+    }
+    
+    document.getElementById('pnl-value').textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + ' (' + (pnl >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%)';
+}
+
+document.getElementById('close_price').addEventListener('input', calculatePnl);
+</script>
+{% else %}
+<script>
+function selectDirection(dir) {
+    document.getElementById('direction-input').value = dir;
+    if (dir == 'long') {
+        document.getElementById('btn-long').style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        document.getElementById('btn-long').style.color = '#fff';
+        document.getElementById('btn-short').style.background = 'rgba(239, 68, 68, 0.2)';
+        document.getElementById('btn-short').style.color = '#94a3b8';
+    } else {
+        document.getElementById('btn-short').style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        document.getElementById('btn-short').style.color = '#fff';
+        document.getElementById('btn-long').style.background = 'rgba(16, 185, 129, 0.2)';
+        document.getElementById('btn-long').style.color = '#94a3b8';
+    }
+}
+
+// 初始化默认选择
+selectDirection("{{ trade.direction if trade.direction else 'long' }}");
+</script>
+{% endif %}
+
+{% endblock %}

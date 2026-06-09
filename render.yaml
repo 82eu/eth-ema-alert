@@ -1,0 +1,16 @@
+# Render 部署配置
+services:
+  - type: web
+    name: eth-ema-alert
+    runtime: python
+    repoURL: https://github.com/yourusername/eth-ema-alert  # 替换为你的GitHub地址，或留空手动上传
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 4 web_app:app
+    pythonVersion: "3.9"
+    envVars:
+      - key: PORT
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /

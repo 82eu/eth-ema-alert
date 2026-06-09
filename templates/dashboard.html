@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>ETH EMA 预警</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e2e8f0; padding: 20px; }
+.container { max-width: 800px; margin: 0 auto; }
+.price-card { background: rgba(255,255,255,0.05); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.price-label { font-size: 14px; color: #94a3b8; margin-bottom: 8px; }
+.big-price { font-size: 48px; font-weight: 700; color: #fff; transition: color 0.4s; }
+.price-time { font-size: 13px; color: #64748b; margin-top: 8px; }
+.price-flash { color: #10b981 !important; }
+.price-flash-up { color: #ef4444 !important; }
+.price-flash-down { color: #10b981 !important; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab { flex: 1; padding: 12px 8px; background: rgba(255,255,255,0.05); border: 2px solid transparent; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 600; color: #94a3b8; text-align: center; transition: all 0.2s; }
+.tab:hover { background: rgba(255,255,255,0.08); }
+.tab.active { background: rgba(99,102,241,0.25); border-color: #6366f1; color: #fff; }
+.tab.alert-on::after { content: " 🔔"; font-size: 10px; }
+.ema-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.signal-badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+.signal-zone { background: rgba(16,185,129,0.2); color: #34d399; }
+.signal-out { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.ema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.ema-item { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 12px; text-align: center; }
+.ema-item-label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+.ema-item-value { font-size: 24px; font-weight: 600; color: #fff; transition: color 0.4s; }
+.ema-item .hl-color { color: #60a5fa; }
+.ema-item .ll-color { color: #f97316; }
+.updated-flash { color: #10b981 !important; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.info-row:last-child { border-bottom: none; }
+.info-label { color: #94a3b8; }
+.info-value { color: #e2e8f0; font-weight: 600; transition: color 0.3s; }
+.history-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.history-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #f1f5f9; }
+.alert-item { padding: 12px; background: rgba(0,0,0,0.2); border-radius: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.alert-signal { font-size: 14px; font-weight: 600; }
+.alert-time { font-size: 12px; color: #64748b; }
+.alert-price { font-size: 14px; color: #fbbf24; font-weight: 600; }
+.empty { text-align: center; color: #64748b; padding: 20px; font-size: 14px; }
+.nav { display: flex; justify-content: center; gap: 10px; margin-top: 24px; }
+.nav-btn { padding: 10px 20px; background: rgba(255,255,255,0.05); color: #cbd5e1; text-decoration: none; border-radius: 10px; font-size: 14px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); }
+.nav-btn.active { background: rgba(99,102,241,0.3); color: #fff; border-color: #6366f1; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 6px; animation: pulse 2s infinite; }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+@media (max-width: 500px) { .big-price { font-size: 36px; } .ema-item-value { font-size: 20px; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- 价格卡片 -->
+  <div class="price-card">
+    <div class="price-label">ETH / USDT 实时价格</div>
+    <div class="big-price" id="big-price">${{ '{:,.2f}'.format(latest_price) if latest_price else '加载中...' }}</div>
+    <div class="price-time"><span class="status-dot" id="live-dot"></span>EMA{{ ema_short }} · EMA{{ ema_long }} · <span id="last-update">实时更新中</span></div>
+  </div>
+
+  <!-- 周期标签 -->
+  <div class="tabs">
+    {% for tf in timeframes %}
+    <div class="tab {% if tf == default_tf %}active{% endif %} {% if tf in enabled_tfs %}alert-on{% endif %}" data-tf="{{ tf }}" id="tab-{{ tf }}">
+      {{ tf_labels[tf] }}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- EMA卡片（每个周期一个）-->
+  {% for tf in timeframes %}
+  <div id="panel-{{ tf }}" class="ema-card" style="display: {% if tf == default_tf %}block{% else %}none{% endif %};">
+    {% set s = tf_states[tf] %}
+    <span class="signal-badge {% if s.in_zone %}signal-zone{% else %}signal-out{% endif %}" id="signal-{{ tf }}">
+      {% if s.in_zone %}✅ 价格在EMA区间内（{% if s.arrangement_text and '多头' in s.arrangement_text %}多头排列·开多方向{% else %}空头排列·开空方向{% endif %}）{% else %}⚠️ 价格不在EMA区间内（{{ s.position_text }}）{% endif %}
+    </span>
+    <div class="ema-grid">
+      <div class="ema-item">
+        <div class="ema-item-label">EMA{{ ema_short }}</div>
+        <div class="ema-item-value hl-color" id="ema-short-{{ tf }}">${{ '{:,.2f}'.format(s.ema_short) }}</div>
+      </div>
+      <div class="ema-item">
+        <div class="ema-item-label">EMA{{ ema_long }}</div>
+        <div class="ema-item-value ll-color" id="ema-long-{{ tf }}">${{ '{:,.2f}'.format(s.ema_long) }}</div>
+      </div>
+    </div>
+    <div class="info-row"><span class="info-label">均线排列</span><span class="info-value" id="arrangement-{{ tf }}">{{ s.arrangement_text }}</span></div>
+    <div class="info-row"><span class="info-label">价格位置</span><span class="info-value" id="position-{{ tf }}">{{ s.position_text }}</span></div>
+    <div class="info-row"><span class="info-label">状态</span><span class="info-value" id="status-{{ tf }}" style="color:#f59e0b;">{% if s.in_zone %}✅ 价格在EMA区间内{% else %}⚪ 价格不在区间内{% endif %}</span></div>
+    <div class="info-row"><span class="info-label">更新时间</span><span class="info-value" id="time-{{ tf }}">{{ s.update_time }}</span></div>
+    <div class="info-row"><span class="info-label">预警</span><span class="info-value" id="alert-status-{{ tf }}" style="color:{% if tf in enabled_tfs %}#34d399{% else %}#64748b{% endif %};">{% if tf in enabled_tfs %}🔔 已启用{% else %}未启用{% endif %}</span></div>
+  </div>
+  {% endfor %}
+
+  <!-- 最近预警 -->
+  <div class="history-card">
+    <div class="history-title">🔔 最近预警</div>
+    {% if recent_alerts %}
+      {% for a in recent_alerts %}
+      <div class="alert-item">
+        <div>
+          <div class="alert-signal" style="color:{% if '开多' in a.signal %}#34d399{% elif '开空' in a.signal %}#f87171{% else %}#94a3b8{% endif %};">[{{ a.timeframe }}] {{ a.signal }}</div>
+          <div class="alert-time">{{ a.time }}</div>
+        </div>
+        <div class="alert-price">${{ '{:,.2f}'.format(a.price) }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">暂无预警记录<br><span style="font-size:12px;">系统正在监控中...</span></div>
+    {% endif %}
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="nav">
+    <a href="{{ url_for('dashboard') }}" class="nav-btn active">📊 仪表盘</a>
+    <a href="{{ url_for('settings') }}" class="nav-btn">⚙️ 设置</a>
+    <a href="{{ url_for('history_page') }}" class="nav-btn">📝 历史</a>
+  </div>
+
+</div>
+
+<script>
+// 存储上一次的价格用于判断涨跌
+var lastPrice = null;
+var currentTf = document.querySelector('.tab.active') ? document.querySelector('.tab.active').getAttribute('data-tf') : '15m';
+
+// 1. 周期切换
+function setupTabs() {
+    var tabs = document.querySelectorAll('.tab');
+    tabs.forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            var tf = this.getAttribute('data-tf');
+            currentTf = tf;
+            tabs.forEach(function(t) { t.classList.remove('active'); });
+            this.classList.add('active');
+            document.querySelectorAll('.ema-card').forEach(function(p) { p.style.display = 'none'; });
+            var panel = document.getElementById('panel-' + tf);
+            if (panel) panel.style.display = 'block';
+        });
+    });
+}
+
+// 2. 数据刷新 - 使用 fetch + no-store 强制不缓存
+function refreshData() {
+    // URL 加时间戳，绝对防止缓存
+    var url = '/api/state?_=' + Date.now();
+
+    fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        // 更新顶部价格
+        if (data.price) {
+            var el = document.getElementById('big-price');
+            if (el) {
+                var newVal = '$' + Number(data.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                if (el.textContent !== newVal) {
+                    // 判断涨跌
+                    if (lastPrice !== null) {
+                        if (data.price > lastPrice) {
+                            el.classList.add('price-flash-up');
+                        } else if (data.price < lastPrice) {
+                            el.classList.add('price-flash-down');
+                        }
+                    } else {
+                        el.classList.add('price-flash');
+                    }
+                    el.textContent = newVal;
+                    setTimeout(function() {
+                        el.classList.remove('price-flash', 'price-flash-up', 'price-flash-down');
+                    }, 1000);
+                    lastPrice = data.price;
+                }
+            }
+        }
+
+        // 更新"最后更新时间"
+        var now = new Date();
+        var h = String(now.getHours()).padStart(2, '0');
+        var m = String(now.getMinutes()).padStart(2, '0');
+        var sec = String(now.getSeconds()).padStart(2, '0');
+        var lastUpd = document.getElementById('last-update');
+        if (lastUpd) lastUpd.textContent = '更新于 ' + h + ':' + m + ':' + sec;
+
+        // 更新各周期数据
+        for (var tf in data.states) {
+            var s = data.states[tf];
+
+            // EMA快线
+            var esEl = document.getElementById('ema-short-' + tf);
+            if (esEl) {
+                var esVal = '$' + Number(s.ema_short).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                if (esEl.textContent !== esVal) {
+                    esEl.textContent = esVal;
+                    esEl.classList.add('updated-flash');
+                    (function(el) { setTimeout(function() { el.classList.remove('updated-flash'); }, 1000); })(esEl);
+                }
+            }
+
+            // EMA慢线
+            var elEl = document.getElementById('ema-long-' + tf);
+            if (elEl) {
+                var elVal = '$' + Number(s.ema_long).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                if (elEl.textContent !== elVal) {
+                    elEl.textContent = elVal;
+                    elEl.classList.add('updated-flash');
+                    (function(el) { setTimeout(function() { el.classList.remove('updated-flash'); }, 1000); })(elEl);
+                }
+            }
+
+            // 均线排列
+            var arrEl = document.getElementById('arrangement-' + tf);
+            if (arrEl && arrEl.textContent !== s.arrangement_text) {
+                arrEl.textContent = s.arrangement_text;
+            }
+
+            // 价格位置
+            var posEl = document.getElementById('position-' + tf);
+            if (posEl && posEl.textContent !== s.position_text) {
+                posEl.textContent = s.position_text;
+            }
+
+            // 状态
+            var statusEl = document.getElementById('status-' + tf);
+            if (statusEl) {
+                var newStatus = s.in_zone ? '✅ 价格在EMA区间内' : '⚪ 价格不在区间内';
+                if (statusEl.textContent !== newStatus) {
+                    statusEl.textContent = newStatus;
+                }
+                statusEl.style.color = s.in_zone ? '#34d399' : '#f59e0b';
+            }
+
+            // 信号徽章文字和样式
+            var badgeEl = document.getElementById('signal-' + tf);
+            if (badgeEl) {
+                var bull = s.arrangement_text && s.arrangement_text.indexOf('多头') !== -1;
+                var newBadgeText = s.in_zone
+                    ? ('✅ 价格在EMA区间内（' + (bull ? '多头排列·开多方向' : '空头排列·开空方向') + '）')
+                    : ('⚠️ 价格不在EMA区间内（' + s.position_text + '）');
+                if (badgeEl.textContent !== newBadgeText) {
+                    badgeEl.textContent = newBadgeText;
+                }
+                if (s.in_zone) {
+                    badgeEl.classList.remove('signal-out');
+                    badgeEl.classList.add('signal-zone');
+                } else {
+                    badgeEl.classList.remove('signal-zone');
+                    badgeEl.classList.add('signal-out');
+                }
+            }
+
+            // 更新时间
+            var timeEl = document.getElementById('time-' + tf);
+            if (timeEl) timeEl.textContent = s.update_time || '';
+
+            // 预警启用状态
+            var alertStatusEl = document.getElementById('alert-status-' + tf);
+            if (alertStatusEl) {
+                var newAlertText = s.enabled ? '🔔 已启用' : '未启用';
+                if (alertStatusEl.textContent !== newAlertText) {
+                    alertStatusEl.textContent = newAlertText;
+                }
+                alertStatusEl.style.color = s.enabled ? '#34d399' : '#64748b';
+            }
+
+            // 标签上的预警图标
+            var tabEl = document.getElementById('tab-' + tf);
+            if (tabEl) {
+                if (s.enabled) tabEl.classList.add('alert-on');
+                else tabEl.classList.remove('alert-on');
+            }
+        }
+    })
+    .catch(function(err) {
+        console.error('刷新失败:', err);
+    });
+}
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    setupTabs();
+    refreshData();
+    // 每5秒刷新一次（更灵敏）
+    setInterval(refreshData, 5000);
+});
+</script>
+</body>
+</html>
