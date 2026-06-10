@@ -125,15 +125,15 @@ body { background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); min-height
     </div>
   </div>
 
-  <!-- 测试按钮：一键发送模拟预警邮件 -->
+  <!-- 测试按钮：一键发送模拟预警（优先飞书） -->
   <div class="conn-card" style="margin-top: 12px; padding: 14px 18px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25);">
     <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
       <div>
-        <div style="font-size: 14px; font-weight: 600; color: #e2e8f0;">🔔 测试预警邮件</div>
-        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">点击发送一封模拟预警邮件，测试手机 MacroDroid 能否触发闹钟</div>
+        <div style="font-size: 14px; font-weight: 600; color: #e2e8f0;">🔔 测试预警推送</div>
+        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">优先推送到飞书机器人，失败时尝试发邮件。</div>
       </div>
       <button id="test-alert-btn" class="nav-btn" style="padding: 10px 18px; font-size: 14px; background: rgba(99, 102, 241, 0.25); color: #fff; border: 1px solid rgba(99, 102, 241, 0.5); cursor: pointer;">
-        发送测试预警邮件
+        发送测试预警
       </button>
     </div>
     <div id="test-alert-result" style="margin-top: 10px; font-size: 12px; color: #94a3b8;"></div>
@@ -258,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(function(data) {
                 btn.disabled = false;
-                btn.textContent = '发送测试预警邮件';
+                btn.textContent = '发送测试预警';
                 if (resultEl) {
                     if (data.success) {
                         resultEl.innerHTML = data.message;
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(function(err) {
                 btn.disabled = false;
-                btn.textContent = '发送测试预警邮件';
+                btn.textContent = '发送测试预警';
                 if (resultEl) {
                     resultEl.innerHTML = '❌ 请求失败：' + err;
                     resultEl.style.color = '#f87171';

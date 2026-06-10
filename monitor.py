@@ -212,6 +212,19 @@ def load_config():
     if env_from and not cfg['email'].get('username'):
         cfg['email']['username'] = env_from
 
+    # 飞书 Webhook 配置（优先级最高的推送方式）
+    if 'feishu' not in cfg or not isinstance(cfg['feishu'], dict):
+        cfg['feishu'] = {}
+    cfg['feishu'].setdefault('webhook', '')
+    env_feishu = os.environ.get('FEISHU_WEBHOOK', '').strip()
+    if env_feishu:
+        cfg['feishu']['webhook'] = env_feishu
+    # 是否同时发邮件（默认关）
+    cfg['feishu'].setdefault('also_send_email', False)
+    env_also = os.environ.get('FEISHU_ALSO_EMAIL', '').strip().lower()
+    if env_also in ['1', 'true', 'yes']:
+        cfg['feishu']['also_send_email'] = True
+
     # 价格区间预警配置
     if 'price_ranges' not in cfg or not isinstance(cfg['price_ranges'], list):
         cfg['price_ranges'] = []
@@ -461,6 +474,50 @@ def send_email(subject, body_html, cfg):
     return False
 
 
+# ============ 飞书推送（推荐）============
+def send_feishu(title, content_text, cfg):
+    """通过飞书机器人 Webhook 推送消息。text 格式即可，支持换行。"""
+    webhook = ''
+    if isinstance(cfg, dict):
+        fc = cfg.get('feishu', {}) if isinstance(cfg.get('feishu'), dict) else {}
+        webhook = fc.get('webhook', '')
+    if not webhook:
+        # 直接从环境变量读（防止传进来的 cfg 不对）
+        webhook = os.environ.get('FEISHU_WEBHOOK', '').strip()
+    if not webhook:
+        logger.warning("⚠️ 飞书 Webhook 未配置，跳过推送")
+        return False
+    try:
+        text = f"{title}\n\n{content_text}"
+        payload = {'msg_type': 'text', 'content': {'text': text}}
+        resp = requests.post(webhook, json=payload, timeout=15)
+        if resp.status_code == 200:
+            j = resp.json() if resp.content else {}
+            if j.get('code') == 0 or j.get('StatusCode') == 0 or j.get('StatusCode') is None and j.get('code') is None:
+                # 飞书返回 OK（或 200 空响应）
+                logger.info(f"✅ 飞书推送成功: {title}")
+                return True
+            logger.warning(f"⚠️ 飞书返回非 OK: {resp.text[:200]}")
+            return False
+        logger.warning(f"⚠️ 飞书 HTTP {resp.status_code}: {resp.text[:200]}")
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ 飞书推送失败: {e}")
+        return False
+
+
+# ============ 统一报警发送接口（先飞书，失败再邮件）============
+def send_alert(subject, body_text, body_html, cfg):
+    """统一报警接口：优先飞书，可选择是否同时发邮件。"""
+    ok = False
+    ok = send_feishu(subject, body_text, cfg)
+    if cfg.get('feishu', {}).get('also_send_email', False) or not ok:
+        # 配置了同时发邮件 或 飞书失败 时尝试邮件
+        if body_html:
+            send_email(subject, body_html, cfg)
+    return ok
+
+
 # ============ 数据更新 ============
 def update_all_data():
     """更新所有周期的数据"""
@@ -515,7 +572,8 @@ def update_all_data():
                                 </div>
                             </body></html>
                             """
-                            if send_email(subject, body, cfg):
+                            body_text = f"EMA{ema_s_p} 与 EMA{ema_l_p} 金叉/死叉\n当前价格: ${result['price']:.2f}\nEMA{ema_s_p}: ${result['ema_short']:.2f}\nEMA{ema_l_p}: ${result['ema_long']:.2f}\n排列状态: {result['arrangement_text']} · {result['position_text']}\n触发时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} · 周期: {TF_LABELS.get(tf, tf)}"
+                            if send_alert(subject, body_text, body, cfg):
                                 add_alert_record(
                                     tf, result['price'], result['ema_short'],
                                     result['ema_long'], result['signal'], result['position']
@@ -575,7 +633,8 @@ def update_all_data():
                                 </div>
                             </body></html>
                             """
-                            if send_email(subject, body, cfg):
+                            body_text = f"价格区间预警 - {note}\n当前价格: ${ref_price:.2f}\n区间上限: ${high:.2f}\n区间下限: ${low:.2f}\n触发时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            if send_alert(subject, body_text, body, cfg):
                                 add_alert_record(
                                     '5m', ref_price, low, high,
                                     '进入区间', 'between', alert_type='price_range', note=note

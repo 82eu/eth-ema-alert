@@ -113,12 +113,15 @@ def api_state():
         price_ranges = cfg.get('price_ranges', []) or []
         # 环境变量诊断（不打印密码，只打印是否存在）
         email_cfg = cfg.get('email', {})
+        feishu_cfg = cfg.get('feishu', {})
         env_diag = {
             'ALERT_FROM_EMAIL_set': bool(os.environ.get('ALERT_FROM_EMAIL')),
             'ALERT_TO_EMAIL_set': bool(os.environ.get('ALERT_TO_EMAIL')),
             'ALERT_EMAIL_PASSWORD_set': bool(os.environ.get('ALERT_EMAIL_PASSWORD')),
             'ALERT_SMTP_SERVER_set': bool(os.environ.get('ALERT_SMTP_SERVER')),
             'ALERT_SMTP_PORT_set': bool(os.environ.get('ALERT_SMTP_PORT')),
+            'FEISHU_WEBHOOK_set': bool(os.environ.get('FEISHU_WEBHOOK')),
+            'cfg_feishu_webhook_set': bool(feishu_cfg.get('webhook')),
             'cfg_smtp_server': email_cfg.get('smtp_server', ''),
             'cfg_from_email_masked': email_cfg.get('from_email', '')[:10] + '...' if email_cfg.get('from_email') else '(empty)',
             'cfg_to_email_masked': email_cfg.get('to_email', '')[:10] + '...' if email_cfg.get('to_email') else '(empty)',
@@ -285,47 +288,10 @@ def test_email():
 
 @app.route('/test_alert_email', methods=['GET', 'POST'])
 def test_alert_email():
-    """一键发送模拟预警邮件（直接读环境变量，不依赖analyze调用）"""
-    # 1. 从环境变量直接读取（Render 部署推荐方式）
-    smtp_server = os.environ.get('ALERT_SMTP_SERVER', 'smtp.gmail.com').strip()
-    from_addr = os.environ.get('ALERT_FROM_EMAIL', '').strip()
-    to_addr = os.environ.get('ALERT_TO_EMAIL', '').strip()
-    password = os.environ.get('ALERT_EMAIL_PASSWORD', '').strip()
-    port_str = os.environ.get('ALERT_SMTP_PORT', '465').strip()
+    """一键发送模拟预警（优先飞书，失败再邮件）"""
+    cfg = mon.load_config()
 
-    # 2. 如果环境变量为空，再尝试从 config.yaml 读取
-    if not smtp_server or not from_addr or not to_addr or not password:
-        try:
-            cfg = mon.load_config()
-            ec = cfg.get('email', {})
-            if not smtp_server: smtp_server = ec.get('smtp_server', '')
-            if not from_addr: from_addr = ec.get('from_email', '')
-            if not to_addr: to_addr = ec.get('to_email', '')
-            if not password: password = ec.get('password', '')
-        except Exception:
-            pass
-
-    # 3. 校验
-    missing = []
-    if not smtp_server: missing.append('ALERT_SMTP_SERVER')
-    if not from_addr: missing.append('ALERT_FROM_EMAIL')
-    if not to_addr: missing.append('ALERT_TO_EMAIL')
-    if not password: missing.append('ALERT_EMAIL_PASSWORD')
-    if missing:
-        return jsonify({'success': False, 'error': '缺少环境变量: %s。请到 Render → Environment 中设置。' % ', '.join(missing),
-                       'debug': {
-                           'smtp_server': smtp_server[:20] + '...' if smtp_server else '(空)',
-                           'from_email': from_addr[:15] + '...' if from_addr else '(空)',
-                           'to_email': to_addr[:15] + '...' if to_addr else '(空)',
-                           'password_len': len(password),
-                       }})
-
-    try:
-        smtp_port = int(port_str) if port_str.isdigit() else 465
-    except:
-        smtp_port = 465
-
-    # 4. 获取价格数据（用于显示在邮件里）
+    # 获取当前价格
     try:
         raw_states = mon.get_all_states() or {}
         s = raw_states.get('15m') or raw_states.get('5m') or {}
@@ -333,50 +299,63 @@ def test_alert_email():
         if price <= 0: price = float(mon.get_latest_price() or 0)
     except Exception:
         price = 0
-
     price_text = ('$%.2f' % price) if price > 0 else '系统运行中'
 
-    # 5. 发送邮件
-    import smtplib, ssl
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
+    subject = '[ETH EMA 预警] 测试消息 · %s' % price_text
 
-    subject = '[ETH EMA 预警] 测试邮件 · %s' % price_text
-    html_body = '<html><body style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">' \
-        '<h2 style="color:#667eea;">%s</h2>' \
-        '<div style="background:#f8fafc; padding: 15px; border-radius: 8px; margin-top: 10px;">' \
-        '<div style="font-size: 28px; font-weight: bold; text-align: center;">%s</div>' \
-        '<div style="margin-top: 15px; font-size: 14px; color: #475569;">如果你看到这封邮件，说明 Gmail SMTP 配置成功，预警系统可以正常发送邮件。</div>' \
-        '<div style="margin-top: 10px; font-size: 12px; color: #94a3b8;">SMTP服务器: %s:%d · 发送时间: %s</div>' \
-        '</div></body></html>' % (subject, price_text, smtp_server, smtp_port, time.strftime('%Y-%m-%d %H:%M:%S'))
+    # 1. 先尝试飞书
+    feishu_url = os.environ.get('FEISHU_WEBHOOK', '').strip()
+    if not feishu_url:
+        feishu_cfg = cfg.get('feishu', {}) if isinstance(cfg.get('feishu'), dict) else {}
+        feishu_url = feishu_cfg.get('webhook', '').strip()
 
-    msg = MIMEMultipart("alternative")
-    msg['Subject'] = subject
-    msg['From'] = from_addr
-    msg['To'] = to_addr
-    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+    body_text_plain = f"ETH EMA 预警系统测试\n\n当前价格: {price_text}\n时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n如果你收到这条消息，说明推送配置正常！"
+    body_html_plain = f"<html><body><h2>ETH EMA 预警系统测试</h2><p>当前价格: <b>{price_text}</b></p><p>时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</p><p>如果你收到这封邮件，说明邮件配置正常！</p></body></html>"
 
-    mon.logger.info('发送测试邮件: %s -> %s (server=%s:%d)' % (from_addr[:20], to_addr[:20], smtp_server, smtp_port))
+    success = False
+    msgs = []
+    errs = []
 
-    context = ssl.create_default_context()
-    try:
-        with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=20) as server:
-            server.login(from_addr, password)
-            server.sendmail(from_addr, [to_addr], msg.as_string())
-        mon.logger.info('✅ SSL 465 发送成功')
-        return jsonify({'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱收件箱（约1-5分钟收到）。'})
-    except Exception as e1:
-        mon.logger.warning('SSL 465 失败 (%s)，尝试 STARTTLS 587' % str(e1))
+    # 尝试飞书
+    if feishu_url:
         try:
-            with smtplib.SMTP(smtp_server, 587, timeout=20) as server:
-                server.starttls(context=context)
-                server.login(from_addr, password)
-                server.sendmail(from_addr, [to_addr], msg.as_string())
-            mon.logger.info('✅ STARTTLS 587 发送成功')
-            return jsonify({'success': True, 'message': '✅ 邮件发送成功（STARTTLS）！请检查手机QQ邮箱收件箱。'})
-        except Exception as e2:
-            return jsonify({'success': False, 'error': 'SSL失败: %s, STARTTLS也失败: %s' % (str(e1)[:80], str(e2)[:80]),
-                           'debug_detail': 'server=%s port=%d from=%s to=%s pwd_len=%d' % (smtp_server, smtp_port, from_addr[:10], to_addr[:10], len(password))})
+            import requests as req_mod
+            payload = {'msg_type': 'text', 'content': {'text': f"{subject}\n\n{body_text_plain}"}}
+            r = req_mod.post(feishu_url, json=payload, timeout=15)
+            if r.status_code == 200:
+                j = r.json() if r.content else {}
+                # 飞书返回 code=0 成功
+                if j.get('code') == 0 or j.get('StatusCode') == 0 or (j.get('code') is None and j.get('StatusCode') is None):
+                    success = True
+                    msgs.append('✅ 飞书推送成功！请检查飞书群消息。')
+                else:
+                    errs.append('飞书返回非成功: %s' % str(j)[:150])
+            else:
+                errs.append('飞书 HTTP %s: %s' % (r.status_code, r.text[:150]))
+        except Exception as e:
+            errs.append('飞书请求异常: %s' % str(e)[:150])
+    else:
+        errs.append('未配置 FEISHU_WEBHOOK')
+
+    # 2. 如果飞书失败或没配置，试邮件
+    if not success:
+        try:
+            email_cfg = cfg.get('email', {})
+            has_email = email_cfg.get('smtp_server') and email_cfg.get('from_email') and email_cfg.get('password') and email_cfg.get('to_email')
+            if has_email:
+                if mon.send_email(subject, body_html_plain, cfg):
+                    success = True
+                    msgs.append('✅ 邮件发送成功！（飞书不可用，已自动降级到邮件）')
+                else:
+                    errs.append('邮件发送失败（SMTP 可能无法连接）')
+            else:
+                errs.append('邮件配置不完整')
+        except Exception as e:
+            errs.append('邮件异常: %s' % str(e)[:100])
+
+    if success:
+        return jsonify({'success': True, 'message': ' | '.join(msgs)})
+    return jsonify({'success': False, 'error': ' | '.join(errs), 'detail': '建议：1) 在 Render Environment 设置 FEISHU_WEBHOOK；2) 飞书机器人需加入群；3) 如设置了关键词验证，消息里需包含该关键词。'})
 
 
 @app.route('/history')
