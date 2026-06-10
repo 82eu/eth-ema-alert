@@ -7,6 +7,19 @@ import time, os, json
 app = Flask(__name__)
 app.secret_key = 'eth-ema-alert-key'
 
+# 全局错误处理器：所有异常都返回 JSON（而不是空白 HTML 500 页）
+@app.errorhandler(Exception)
+def handle_all_errors(e):
+    import traceback
+    tb = traceback.format_exc()
+    mon.logger.error('未捕获异常: %s\n%s' % (e, tb))
+    # /api 或 test_alert_email 请求返回 JSON
+    from flask import request
+    path = request.path if hasattr(request, 'path') else ''
+    if '/api/' in path or 'test_alert_email' in path:
+        return jsonify({'success': False, 'error': str(e), 'detail': tb.splitlines()[-1] if tb else str(e)}), 500
+    return '错误: ' + str(e), 500
+
 mon.start_monitor_in_background()
 time.sleep(3)
 
