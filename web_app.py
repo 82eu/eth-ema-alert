@@ -133,6 +133,38 @@ def api_state():
             'source_health': mon.get_source_health(),
             'price_ranges': price_ranges,
             'env_diag': env_diag,
+                    # 邮件诊断：尝试连接 Gmail SMTP 服务器
+        try:
+            import smtplib, ssl
+            from email.mime.text import MIMEText
+            _smtp_server = os.environ.get('ALERT_SMTP_SERVER', 'smtp.gmail.com')
+            _smtp_port = int(os.environ.get('ALERT_SMTP_PORT', '465'))
+            _from = os.environ.get('ALERT_FROM_EMAIL', '')
+            _to = os.environ.get('ALERT_TO_EMAIL', '')
+            _pwd = os.environ.get('ALERT_EMAIL_PASSWORD', '')
+            env_diag['mail_from'] = _from[:10] + '...' if _from else '(空)'
+            env_diag['mail_to'] = _to[:10] + '...' if _to else '(空)'
+            env_diag['mail_pwd_len'] = len(_pwd)
+            env_diag['mail_server'] = _smtp_server
+            env_diag['mail_port'] = _smtp_port
+            # 测试连接
+            try:
+                _ctx = ssl.create_default_context()
+                with smtplib.SMTP_SSL(_smtp_server, _smtp_port, context=_ctx, timeout=15) as _srv:
+                    _srv.login(_from, _pwd)
+                    env_diag['smtp_connect'] = 'SSL 465 OK'
+            except Exception as _e1:
+                env_diag['smtp_connect_ssl'] = 'FAIL: ' + str(_e1)
+                try:
+                    with smtplib.SMTP(_smtp_server, 587, timeout=15) as _srv:
+                        _srv.starttls(context=_ctx)
+                        _srv.login(_from, _pwd)
+                        env_diag['smtp_connect'] = 'STARTTLS 587 OK'
+                except Exception as _e2:
+                    env_diag['smtp_connect_starttls'] = 'FAIL: ' + str(_e2)
+                    env_diag['smtp_connect'] = 'BOTH FAIL'
+        except Exception as _em:
+            env_diag['mail_diag_error'] = str(_em)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
