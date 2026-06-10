@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ETH EMA 预警系统 - Web 界面"""
+"""ETH EMA 预警系统 - Web 界面（稳定版）"""
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
 import monitor as mon
 import time, os, json
@@ -7,18 +7,17 @@ import time, os, json
 app = Flask(__name__)
 app.secret_key = 'eth-ema-alert-key'
 
-# 全局错误处理器：所有异常都返回 JSON（而不是空白 HTML 500 页）
+# ====== 全局错误处理器 ======
+# 任何未捕获的异常都返回 JSON（绝对不返回空白的 500 页）
 @app.errorhandler(Exception)
-def handle_all_errors(e):
+def _global_error_handler(e):
     import traceback
     tb = traceback.format_exc()
-    mon.logger.error('未捕获异常: %s\n%s' % (e, tb))
-    # /api 或 test_alert_email 请求返回 JSON
-    from flask import request
+    mon.logger.error('未捕获异常: %s\n%s' % (str(e), tb))
     path = request.path if hasattr(request, 'path') else ''
     if '/api/' in path or 'test_alert_email' in path:
         return jsonify({'success': False, 'error': str(e), 'detail': tb.splitlines()[-1] if tb else str(e)}), 500
-    return '错误: ' + str(e), 500
+    return '服务错误: ' + str(e), 500
 
 mon.start_monitor_in_background()
 time.sleep(3)
@@ -286,83 +285,98 @@ def test_email():
 
 @app.route('/test_alert_email', methods=['GET', 'POST'])
 def test_alert_email():
-    """仪表盘一键发送模拟预警邮件（返回JSON，显示真实错误）"""
-    try:
-        cfg = mon.load_config()
-        email_cfg = cfg.get('email', {})
-        if not email_cfg.get('smtp_server') or not email_cfg.get('to_email') or not email_cfg.get('from_email') or not email_cfg.get('password'):
-            return jsonify({'success': False, 'error': '邮箱配置不完整，请在 Render 的 Environment 中设置 ALERT_FROM_EMAIL/ALERT_TO_EMAIL/ALERT_EMAIL_PASSWORD/ALERT_SMTP_SERVER'})
+    """一键发送模拟预警邮件（直接读环境变量，不依赖analyze调用）"""
+    # 1. 从环境变量直接读取（Render 部署推荐方式）
+    smtp_server = os.environ.get('ALERT_SMTP_SERVER', 'smtp.gmail.com').strip()
+    from_addr = os.environ.get('ALERT_FROM_EMAIL', '').strip()
+    to_addr = os.environ.get('ALERT_TO_EMAIL', '').strip()
+    password = os.environ.get('ALERT_EMAIL_PASSWORD', '').strip()
+    port_str = os.environ.get('ALERT_SMTP_PORT', '465').strip()
 
-        import smtplib, ssl
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-
-        # 取当前最新数据做模拟邮件内容
+    # 2. 如果环境变量为空，再尝试从 config.yaml 读取
+    if not smtp_server or not from_addr or not to_addr or not password:
         try:
-            state = mon.analyze('15m', cfg['ema_alert']['ema_short'], cfg['ema_alert']['ema_long'])
-            price = state.get('price', 3500)
-            ema_s = state.get('ema_short', 3500)
-            ema_l = state.get('ema_long', 3500)
-            signal = state.get('signal_text', '测试信号')
+            cfg = mon.load_config()
+            ec = cfg.get('email', {})
+            if not smtp_server: smtp_server = ec.get('smtp_server', '')
+            if not from_addr: from_addr = ec.get('from_email', '')
+            if not to_addr: to_addr = ec.get('to_email', '')
+            if not password: password = ec.get('password', '')
         except Exception:
-            price, ema_s, ema_l, signal = 3500, 3520, 3480, '测试预警'
+            pass
 
-        subject = '[ETH EMA 预警] 15m 周期 · %s · $%.2f' % (signal, float(price))
-        html_body = """
-        <html><body style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
-            <h2 style="color:#f97316;">%s</h2>
-            <div style="background:#f8fafc; padding: 15px; border-radius: 8px; margin-top: 10px;">
-                <div style="font-size: 28px; font-weight: bold; text-align: center;">$%.2f</div>
-                <div style="margin-top: 15px; font-size: 16px;">
-                    <div>信号类型：<b>%s</b></div>
-                    <div>EMA%d：<b>$%.2f</b></div>
-                    <div>EMA%d：<b>$%.2f</b></div>
-                </div>
-            </div>
-            <div style="margin-top: 15px; color: #64748b; font-size: 12px; text-align: center;">
-                触发时间：%s · 周期：15m · 测试邮件
-            </div>
-        </body></html>
-        """ % (subject, float(price), signal,
-               cfg['ema_alert']['ema_short'], float(ema_s),
-               cfg['ema_alert']['ema_long'], float(ema_l),
-               time.strftime('%Y-%m-%d %H:%M:%S'))
+    # 3. 校验
+    missing = []
+    if not smtp_server: missing.append('ALERT_SMTP_SERVER')
+    if not from_addr: missing.append('ALERT_FROM_EMAIL')
+    if not to_addr: missing.append('ALERT_TO_EMAIL')
+    if not password: missing.append('ALERT_EMAIL_PASSWORD')
+    if missing:
+        return jsonify({'success': False, 'error': '缺少环境变量: %s。请到 Render → Environment 中设置。' % ', '.join(missing),
+                       'debug': {
+                           'smtp_server': smtp_server[:20] + '...' if smtp_server else '(空)',
+                           'from_email': from_addr[:15] + '...' if from_addr else '(空)',
+                           'to_email': to_addr[:15] + '...' if to_addr else '(空)',
+                           'password_len': len(password),
+                       }})
 
-        msg = MIMEMultipart("alternative")
-        msg['Subject'] = subject
-        msg['From'] = email_cfg.get('from_email', '')
-        msg['To'] = email_cfg.get('to_email', '')
-        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+    try:
+        smtp_port = int(port_str) if port_str.isdigit() else 465
+    except:
+        smtp_port = 465
 
-        smtp_server = email_cfg.get('smtp_server', 'smtp.gmail.com')
-        smtp_port = int(email_cfg.get('smtp_port', 465))
-        from_addr = email_cfg.get('from_email', '')
-        to_addr = email_cfg.get('to_email', '')
-        username = email_cfg.get('username', from_addr)
-        password = email_cfg.get('password', '')
+    # 4. 获取价格数据（用于显示在邮件里）
+    try:
+        raw_states = mon.get_all_states() or {}
+        s = raw_states.get('15m') or raw_states.get('5m') or {}
+        price = float(s.get('price', 0)) if isinstance(s, dict) and s.get('price') else 0
+        if price <= 0: price = float(mon.get_latest_price() or 0)
+    except Exception:
+        price = 0
 
-        mon.logger.info('尝试发送邮件: server=%s port=%d from=%s to=%s' % (smtp_server, smtp_port, from_addr, to_addr))
+    price_text = ('$%.2f' % price) if price > 0 else '系统运行中'
 
-        context = ssl.create_default_context()
+    # 5. 发送邮件
+    import smtplib, ssl
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    subject = '[ETH EMA 预警] 测试邮件 · %s' % price_text
+    html_body = '<html><body style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">' \
+        '<h2 style="color:#667eea;">%s</h2>' \
+        '<div style="background:#f8fafc; padding: 15px; border-radius: 8px; margin-top: 10px;">' \
+        '<div style="font-size: 28px; font-weight: bold; text-align: center;">%s</div>' \
+        '<div style="margin-top: 15px; font-size: 14px; color: #475569;">如果你看到这封邮件，说明 Gmail SMTP 配置成功，预警系统可以正常发送邮件。</div>' \
+        '<div style="margin-top: 10px; font-size: 12px; color: #94a3b8;">SMTP服务器: %s:%d · 发送时间: %s</div>' \
+        '</div></body></html>' % (subject, price_text, smtp_server, smtp_port, time.strftime('%Y-%m-%d %H:%M:%S'))
+
+    msg = MIMEMultipart("alternative")
+    msg['Subject'] = subject
+    msg['From'] = from_addr
+    msg['To'] = to_addr
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+    mon.logger.info('发送测试邮件: %s -> %s (server=%s:%d)' % (from_addr[:20], to_addr[:20], smtp_server, smtp_port))
+
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=20) as server:
+            server.login(from_addr, password)
+            server.sendmail(from_addr, [to_addr], msg.as_string())
+        mon.logger.info('✅ SSL 465 发送成功')
+        return jsonify({'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱收件箱（约1-5分钟收到）。'})
+    except Exception as e1:
+        mon.logger.warning('SSL 465 失败 (%s)，尝试 STARTTLS 587' % str(e1))
         try:
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=20) as server:
-                server.login(username, password)
-                server.sendmail(from_addr, [to_addr], msg.as_string())
-        except Exception as e:
-            # 如果 SSL 465 失败，尝试 STARTTLS 587
-            mon.logger.warning('SSL 465失败，尝试STARTTLS 587: %s' % e)
             with smtplib.SMTP(smtp_server, 587, timeout=20) as server:
                 server.starttls(context=context)
-                server.login(username, password)
+                server.login(from_addr, password)
                 server.sendmail(from_addr, [to_addr], msg.as_string())
-
-        mon.logger.info('✅ 测试预警邮件已发送: %s' % subject)
-        return jsonify({'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱（约1-5分钟收到），MacroDroid 会检测到并触发闹钟。'})
-    except Exception as e:
-        import traceback
-        err_detail = traceback.format_exc()
-        mon.logger.error('测试预警邮件发送失败: %s\n%s' % (e, err_detail))
-        return jsonify({'success': False, 'error': str(e), 'detail': err_detail.splitlines()[-1] if err_detail else str(e)})
+            mon.logger.info('✅ STARTTLS 587 发送成功')
+            return jsonify({'success': True, 'message': '✅ 邮件发送成功（STARTTLS）！请检查手机QQ邮箱收件箱。'})
+        except Exception as e2:
+            return jsonify({'success': False, 'error': 'SSL失败: %s, STARTTLS也失败: %s' % (str(e1)[:80], str(e2)[:80]),
+                           'debug_detail': 'server=%s port=%d from=%s to=%s pwd_len=%d' % (smtp_server, smtp_port, from_addr[:10], to_addr[:10], len(password))})
 
 
 @app.route('/history')
