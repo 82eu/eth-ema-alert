@@ -38,6 +38,8 @@ _state_lock = threading.Lock()
 _last_update_time = 0
 _zone_tracker = {}
 _last_source = {}
+# 定时价格推送：记录上次推送的时间（UTC 小时分段）
+_last_price_push_hour = -1  # -1 表示从未推送
 
 # 数据源健康状态：{source_name: {'status': 'ok'|'fail', 'last_check': ts, 'message': str}}
 _source_health = {}
@@ -77,7 +79,7 @@ def _source_gateio(tf, limit):
     last_err = None
     for attempt in range(3):
         try:
-            resp = requests.get(url, params=params, headers=headers, timeout=8,
+            resp = requests.get(url, params=params, headers=headers, timeout=12,
                                 proxies={'http': None, 'https': None})
             if resp.status_code == 200:
                 data = resp.json()
@@ -88,7 +90,7 @@ def _source_gateio(tf, limit):
                         return klines
         except Exception as e:
             last_err = e
-        time.sleep(1 + attempt)
+        time.sleep(0.5 + attempt)
     if last_err:
         logger.warning(f"[{tf}] Gate.io 失败: {last_err}")
     return None
@@ -99,18 +101,22 @@ def _source_binance_spot(tf, limit):
     url = 'https://api.binance.com/api/v3/klines'
     params = {'symbol': 'ETHUSDT', 'interval': BINANCE_TF[tf], 'limit': str(limit)}
     headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=6,
-                            proxies={'http': None, 'https': None})
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and len(data) >= 10:
-                klines = [[float(k[1]), float(k[2]), float(k[3]), float(k[4])]
-                          for k in data if len(k) >= 6]
-                if _validate_klines(klines):
-                    return klines
-    except Exception as e:
-        logger.warning(f"[{tf}] Binance 失败: {e}")
+    last_err = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=10,
+                                proxies={'http': None, 'https': None})
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) >= 10:
+                    klines = [[float(k[1]), float(k[2]), float(k[3]), float(k[4])]
+                              for k in data if len(k) >= 6]
+                    if _validate_klines(klines):
+                        return klines
+        except Exception as e:
+            last_err = e
+        time.sleep(0.5 + attempt)
+    logger.warning(f"[{tf}] Binance 失败: {last_err}")
     return None
 
 
@@ -120,7 +126,7 @@ def _source_kucoin(tf, limit):
     params = {'symbol': 'ETH-USDT', 'type': KUCOIN_TF[tf]}
     headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=6,
+        resp = requests.get(url, params=params, headers=headers, timeout=10,
                             proxies={'http': None, 'https': None})
         if resp.status_code == 200:
             wrapper = resp.json()
@@ -138,13 +144,13 @@ def _source_kucoin(tf, limit):
 
 
 def _source_coingecko(tf, limit):
-    """CoinGecko（备用，仅 4h 周期可用）"""
+    """CoinGecko（备用，1h/4h 周期更稳定）"""
     url = 'https://api.coingecko.com/api/v3/coins/ethereum/ohlc'
-    days = '90' if tf in ['1h', '4h'] else '1'
+    days = '365' if tf in ['1h', '4h'] else '1'
     params = {'vs_currency': 'usd', 'days': days}
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=6,
+        resp = requests.get(url, params=params, headers=headers, timeout=10,
                             proxies={'http': None, 'https': None})
         if resp.status_code == 200:
             data = resp.json()
@@ -520,7 +526,7 @@ def send_alert(subject, body_text, body_html, cfg):
 
 # ============ 数据更新 ============
 def update_all_data():
-    """更新所有周期的数据"""
+    """更新所有周期的数据。失败的周期保留上次缓存。"""
     global _last_update_time
     cfg = load_config()
     ema_s_p = cfg['ema_alert']['ema_short']
@@ -529,15 +535,43 @@ def update_all_data():
     enabled_tfs = cfg['ema_alert'].get('enabled_timeframes', [])
     price_ranges = cfg.get('price_ranges', []) or []
 
+    # 初始化缓存：确保每个周期都有默认占位，避免前端看到 $0.00
+    with _state_lock:
+        for tf in TIMEFRAMES:
+            if tf not in _state_cache or _state_cache[tf] is None:
+                _state_cache[tf] = {
+                    'timeframe': tf, 'label': TF_LABELS.get(tf, tf),
+                    'price': 0, 'ema_short': 0, 'ema_long': 0,
+                    'ema_high': 0, 'ema_low': 0,
+                    'position': '', 'position_text': '加载中...',
+                    'arrangement': '', 'arrangement_text': '加载中',
+                    'signal': '', 'signal_text': '加载中',
+                    'in_zone': False, 'update_time': '加载中',
+                    'data_count': 0, 'data_source': 'loading',
+                    '_stale': True,
+                }
+
     has_any_data = False
     for tf in TIMEFRAMES:
         try:
             klines = fetch_klines(tf, max(ema_l_p * 4, 500))
             if not klines:
+                logger.warning(f"[{tf}] ⚠️  本轮获取失败，保留上次缓存")
+                # 标记上次缓存为 stale（但不清空）
+                with _state_lock:
+                    if _state_cache.get(tf):
+                        _state_cache[tf]['_stale'] = True
+                        if '加载中' in str(_state_cache[tf].get('update_time', '')):
+                            _state_cache[tf]['update_time'] = '数据暂不可用'
                 continue
             result = analyze(tf, klines, ema_s_p, ema_l_p)
             if result is None:
+                with _state_lock:
+                    if _state_cache.get(tf):
+                        _state_cache[tf]['_stale'] = True
                 continue
+
+            result['_stale'] = False
             has_any_data = True
 
             with _state_lock:
@@ -589,7 +623,7 @@ def update_all_data():
         except Exception as e:
             logger.warning(f"[{tf}] 检查出错: {e}")
 
-        time.sleep(0.2)  # 轻量间隔，避免 API 限流
+        time.sleep(0.3)  # 轻量间隔，避免 API 限流
 
     # ===== 价格区间预警（使用 5m 周期的价格作为参考价格）=====
     if price_ranges:
@@ -655,6 +689,23 @@ def update_all_data():
                 break
         if latest:
             logger.info(f"✅ 数据更新完成 - ETH=${latest['price']:.2f}, 数据源={latest['data_source']}")
+
+        # ===== 定时价格推送（每4小时一次）=====
+        try:
+            should_push, hour = _should_push_price_now()
+            if should_push:
+                logger.info(f"⏰ 到了 {hour:02d}:00 推送时间，正在推送价格到飞书...")
+                push_ok = _push_price_to_feishu(cfg)
+                if push_ok:
+                    _last_price_push_hour = hour
+                    logger.info(f"✅ {hour:02d}:00 价格推送已完成")
+                else:
+                    # 推送失败时，重置标记，让下次循环再尝试
+                    logger.warning(f"⚠️  {hour:02d}:00 价格推送失败，稍后重试")
+                    pass
+        except Exception as e:
+            logger.warning(f"定时价格推送出错: {e}")
+
         return True
     logger.warning("⚠️ 所有数据源均获取失败")
     return False
@@ -673,6 +724,60 @@ def _recover_last_alert_time():
     return last_map
 
 
+# ============ 定时价格推送（每4小时一次）============
+def _should_push_price_now():
+    """判断当前是否到了推送时间。
+    以服务器本地时间计算：
+      - 从 08:00 开始，每 4 小时一次（08, 12, 16, 20, 00, 04）
+      - 在这些整点的前 2 分钟内，且尚未推送过该小时段
+    """
+    now = datetime.now()
+    hour = now.hour
+    minute = now.minute
+    # 目标小时：0, 4, 8, 12, 16, 20
+    if hour % 4 != 0:
+        return False, -1
+    # 在整点的 0-10 分钟内触发（给数据更新留时间）
+    if minute > 10:
+        return False, -1
+    global _last_price_push_hour
+    if _last_price_push_hour == hour:
+        return False, -1
+    return True, hour
+
+
+def _push_price_to_feishu(cfg):
+    """把当前价格推送到飞书。"""
+    price = None
+    source_name = 'unknown'
+    # 取最新可用的价格
+    for tf in ['5m', '15m', '30m', '1h', '4h']:
+        s = _state_cache.get(tf)
+        if s and isinstance(s, dict) and s.get('price'):
+            try:
+                p = float(s.get('price', 0))
+                if p > 0:
+                    price = p
+                    source_name = s.get('data_source', 'unknown')
+                    break
+            except Exception:
+                continue
+
+    if price is None:
+        logger.warning("⚠️  定时推送：无有效价格，跳过")
+        return False
+
+    subject = f"ETH 价格播报 · ${price:.2f}"
+    content = f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+    ok = send_feishu(subject, content, cfg)
+    if ok:
+        logger.info(f"✅ 定时价格推送成功 - ${price:.2f}")
+    else:
+        logger.warning(f"⚠️  定时价格推送失败 - ${price:.2f}")
+    return ok
+
+
 # ============ 后台监控循环 ============
 def run_monitor_loop():
     logger.info("=" * 50)
@@ -680,6 +785,17 @@ def run_monitor_loop():
     logger.info("=" * 50)
 
     update_all_data()
+
+    # 启动时发一条通知到飞书
+    try:
+        cfg = load_config()
+        price = get_latest_price()
+        if price:
+            subject = f"ETH 预警系统已启动 · ${price:.2f}"
+            content = f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n推送时间表: 08:00 / 12:00 / 16:00 / 20:00 / 00:00 / 04:00"
+            send_feishu(subject, content, cfg)
+    except Exception as e:
+        logger.warning(f"启动通知失败: {e}")
 
     while True:
         try:

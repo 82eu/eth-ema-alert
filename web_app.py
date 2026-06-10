@@ -39,7 +39,7 @@ def _get_states_dict():
     tf_states = {}
     for tf in mon.TIMEFRAMES:
         s = raw_states.get(tf)
-        if s and isinstance(s, dict) and s.get('price'):
+        if s and isinstance(s, dict) and s.get('price') and float(s.get('price', 0)) > 0:
             tf_states[tf] = {
                 'ema_short': float(s.get('ema_short', 0)),
                 'ema_long': float(s.get('ema_long', 0)),
@@ -49,13 +49,14 @@ def _get_states_dict():
                 'data_source': s.get('data_source', ''),
                 'enabled': tf in enabled_tfs,
                 'price': float(s.get('price', 0)),
+                'stale': bool(s.get('_stale', False)),
             }
         else:
             tf_states[tf] = {
                 'ema_short': 0, 'ema_long': 0,
-                'arrangement_text': '', 'in_zone': False,
-                'update_time': '', 'data_source': '', 'enabled': tf in enabled_tfs,
-                'price': 0,
+                'arrangement_text': '加载中', 'in_zone': False,
+                'update_time': '等待数据...', 'data_source': 'loading',
+                'enabled': tf in enabled_tfs, 'price': 0, 'stale': True,
             }
     return tf_states, enabled_tfs
 
