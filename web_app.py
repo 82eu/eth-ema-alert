@@ -99,6 +99,19 @@ def api_state():
                 'data_source': s['data_source'],
             }
         price_ranges = cfg.get('price_ranges', []) or []
+        # 环境变量诊断（不打印密码，只打印是否存在）
+        email_cfg = cfg.get('email', {})
+        env_diag = {
+            'ALERT_FROM_EMAIL_set': bool(os.environ.get('ALERT_FROM_EMAIL')),
+            'ALERT_TO_EMAIL_set': bool(os.environ.get('ALERT_TO_EMAIL')),
+            'ALERT_EMAIL_PASSWORD_set': bool(os.environ.get('ALERT_EMAIL_PASSWORD')),
+            'ALERT_SMTP_SERVER_set': bool(os.environ.get('ALERT_SMTP_SERVER')),
+            'ALERT_SMTP_PORT_set': bool(os.environ.get('ALERT_SMTP_PORT')),
+            'cfg_smtp_server': email_cfg.get('smtp_server', ''),
+            'cfg_from_email_masked': email_cfg.get('from_email', '')[:10] + '...' if email_cfg.get('from_email') else '(empty)',
+            'cfg_to_email_masked': email_cfg.get('to_email', '')[:10] + '...' if email_cfg.get('to_email') else '(empty)',
+            'cfg_password_len': len(email_cfg.get('password', '')),
+        }
         return jsonify({
             'price': mon.get_latest_price(),
             'states': result,
@@ -106,6 +119,7 @@ def api_state():
             'connection': mon.get_connection_status(),
             'source_health': mon.get_source_health(),
             'price_ranges': price_ranges,
+            'env_diag': env_diag,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
