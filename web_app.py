@@ -271,7 +271,7 @@ def test_email():
     return redirect(url_for('settings'))
 
 
-@app.route('/test_alert_email', methods=['POST'])
+@app.route('/test_alert_email', methods=['GET', 'POST'])
 def test_alert_email():
     """仪表盘一键发送模拟预警邮件（返回JSON，显示真实错误）"""
     try:
