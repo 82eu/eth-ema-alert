@@ -259,13 +259,12 @@ def test_email():
 
 @app.route('/test_alert_email', methods=['POST'])
 def test_alert_email():
-    """仪表盘一键发送模拟预警邮件（跟真实预警格式一致，用于测试 MacroDroid 闹钟）"""
+    """仪表盘一键发送模拟预警邮件（返回JSON，显示真实错误）"""
     try:
         cfg = mon.load_config()
         email_cfg = cfg.get('email', {})
-        if not email_cfg.get('smtp_server') or not email_cfg.get('to_email'):
-            flash('❌ 请先在设置页面填写邮箱配置', 'error')
-            return redirect(url_for('dashboard'))
+        if not email_cfg.get('smtp_server') or not email_cfg.get('to_email') or not email_cfg.get('from_email') or not email_cfg.get('password'):
+            return {'success': False, 'error': '邮箱配置不完整，请在 Render 的 Environment 中设置 ALERT_FROM_EMAIL/ALERT_TO_EMAIL/ALERT_EMAIL_PASSWORD/ALERT_SMTP_SERVER'}
 
         import smtplib, ssl
         from email.mime.text import MIMEText
@@ -308,19 +307,35 @@ def test_alert_email():
         msg['To'] = email_cfg.get('to_email', '')
         msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-        context = ssl.create_default_context()
-        port = int(email_cfg.get('smtp_port', 465))
-        with smtplib.SMTP_SSL(email_cfg.get('smtp_server', 'smtp.qq.com'), port, context=context, timeout=30) as server:
-            server.login(email_cfg.get('username', email_cfg.get('from_email', '')), email_cfg.get('password', ''))
-            server.sendmail(email_cfg.get('from_email', ''), [email_cfg.get('to_email', '')], msg.as_string())
+        smtp_server = email_cfg.get('smtp_server', 'smtp.gmail.com')
+        smtp_port = int(email_cfg.get('smtp_port', 465))
+        from_addr = email_cfg.get('from_email', '')
+        to_addr = email_cfg.get('to_email', '')
+        username = email_cfg.get('username', from_addr)
+        password = email_cfg.get('password', '')
 
-        flash('✅ 测试预警邮件已发送（主题含"EMA"），约 5 分钟内手机会触发闹钟', 'success')
+        mon.logger.info('尝试发送邮件: server=%s port=%d from=%s to=%s' % (smtp_server, smtp_port, from_addr, to_addr))
+
+        context = ssl.create_default_context()
+        try:
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=20) as server:
+                server.login(username, password)
+                server.sendmail(from_addr, [to_addr], msg.as_string())
+        except Exception as e:
+            # 如果 SSL 465 失败，尝试 STARTTLS 587
+            mon.logger.warning('SSL 465失败，尝试STARTTLS 587: %s' % e)
+            with smtplib.SMTP(smtp_server, 587, timeout=20) as server:
+                server.starttls(context=context)
+                server.login(username, password)
+                server.sendmail(from_addr, [to_addr], msg.as_string())
+
         mon.logger.info('✅ 测试预警邮件已发送: %s' % subject)
+        return {'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱（约1-5分钟收到），MacroDroid 会检测到并触发闹钟。'}
     except Exception as e:
         import traceback
-        mon.logger.error('测试预警邮件发送失败: %s\n%s' % (e, traceback.format_exc()))
-        flash('❌ 发送失败: ' + str(e), 'error')
-    return redirect(url_for('dashboard'))
+        err_detail = traceback.format_exc()
+        mon.logger.error('测试预警邮件发送失败: %s\n%s' % (e, err_detail))
+        return {'success': False, 'error': str(e), 'detail': err_detail.splitlines()[-1] if err_detail else str(e)}
 
 
 @app.route('/history')
