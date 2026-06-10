@@ -240,7 +240,7 @@ function toggleSources() {
     panel.style.display = _sourcesExpanded ? 'block' : 'none';
 }
 
-// 一键发送测试预警邮件（测试 MacroDroid 闹钟）
+// 一键发送测试预警邮件（测试 MacroDroid 闹钟）— 返回JSON，显示真实错误
 document.addEventListener('DOMContentLoaded', function() {
     var btn = document.getElementById('test-alert-btn');
     if (!btn) return;
@@ -248,23 +248,32 @@ document.addEventListener('DOMContentLoaded', function() {
         var resultEl = document.getElementById('test-alert-result');
         btn.disabled = true;
         btn.textContent = '发送中...';
-        if (resultEl) resultEl.textContent = '正在发送测试预警邮件...';
+        if (resultEl) {
+            resultEl.textContent = '正在发送（20秒内超时会自动返回）...';
+            resultEl.style.color = '#94a3b8';
+        }
         fetch('{{ url_for("test_alert_email") }}', { method: 'POST' })
-            .then(function(r) { return r.text(); })
-            .then(function(html) {
-                // Flask 返回的是重定向 + flash，我们直接读结果
+            .then(function(r) {
+                return r.json().catch(function() { return { success: false, error: '服务器返回异常结果' }; });
+            })
+            .then(function(data) {
                 btn.disabled = false;
                 btn.textContent = '发送测试预警邮件';
                 if (resultEl) {
-                    resultEl.innerHTML = '✅ 测试邮件已发送！请留意手机邮箱，约 5 分钟内 MacroDroid 会检测到并触发闹钟。';
-                    resultEl.style.color = '#34d399';
+                    if (data.success) {
+                        resultEl.innerHTML = data.message;
+                        resultEl.style.color = '#34d399';
+                    } else {
+                        resultEl.innerHTML = '❌ 发送失败：<b>' + data.error + '</b>' + (data.detail ? '<br><span style="color:#94a3b8;font-size:11px;">' + data.detail + '</span>' : '');
+                        resultEl.style.color = '#f87171';
+                    }
                 }
             })
             .catch(function(err) {
                 btn.disabled = false;
                 btn.textContent = '发送测试预警邮件';
                 if (resultEl) {
-                    resultEl.innerHTML = '❌ 发送失败：' + err;
+                    resultEl.innerHTML = '❌ 请求失败：' + err;
                     resultEl.style.color = '#f87171';
                 }
             });
