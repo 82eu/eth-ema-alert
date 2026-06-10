@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>ETH EMA 预警</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e2e8f0; padding: 20px; }
+.container { max-width: 800px; margin: 0 auto; }
+.price-card { background: rgba(255,255,255,0.05); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.price-label { font-size: 14px; color: #94a3b8; margin-bottom: 8px; }
+.big-price { font-size: 48px; font-weight: 700; color: #fff; transition: color 0.4s; }
+.price-time { font-size: 13px; color: #64748b; margin-top: 8px; }
+.price-flash { color: #10b981 !important; }
+.price-flash-up { color: #ef4444 !important; }
+.price-flash-down { color: #10b981 !important; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab { flex: 1; padding: 12px 8px; background: rgba(255,255,255,0.05); border: 2px solid transparent; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 600; color: #94a3b8; text-align: center; transition: all 0.2s; }
+.tab:hover { background: rgba(255,255,255,0.08); }
+.tab.active { background: rgba(99,102,241,0.25); border-color: #6366f1; color: #fff; }
+.tab.alert-on::after { content: " 🔔"; font-size: 10px; }
+.ema-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.signal-badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+.signal-zone { background: rgba(16,185,129,0.2); color: #34d399; }
+.signal-out { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.ema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.ema-item { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 12px; text-align: center; }
+.ema-item-label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+.ema-item-value { font-size: 24px; font-weight: 600; color: #fff; transition: color 0.4s; }
+.ema-item .hl-color { color: #60a5fa; }
+.ema-item .ll-color { color: #f97316; }
+.updated-flash { color: #10b981 !important; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.info-row:last-child { border-bottom: none; }
+.info-label { color: #94a3b8; }
+.info-value { color: #e2e8f0; font-weight: 600; transition: color 0.3s; }
+.history-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.history-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #f1f5f9; }
+.alert-item { padding: 12px; background: rgba(0,0,0,0.2); border-radius: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.alert-signal { font-size: 14px; font-weight: 600; }
+.alert-time { font-size: 12px; color: #64748b; }
+.alert-price { font-size: 14px; color: #fbbf24; font-weight: 600; }
+.empty { text-align: center; color: #64748b; padding: 20px; font-size: 14px; }
+.nav { display: flex; justify-content: center; gap: 10px; margin-top: 24px; }
+.nav-btn { padding: 10px 20px; background: rgba(255,255,255,0.05); color: #cbd5e1; text-decoration: none; border-radius: 10px; font-size: 14px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); }
+.nav-btn.active { background: rgba(99,102,241,0.3); color: #fff; border-color: #6366f1; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 6px; animation: pulse 2s infinite; }
+.conn-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 16px 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+.conn-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; cursor: pointer; }
+.conn-status { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
+.conn-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,0.2); }
+.conn-dot.online { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.25); animation: pulse 2s infinite; }
+.conn-dot.synthetic { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,0.25); }
+.conn-dot.offline { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.25); }
+.conn-label { color: #e2e8f0; }
+.conn-detail { font-size: 12px; color: #94a3b8; }
+.conn-sources { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); }
+.conn-sources-title { font-size: 13px; color: #94a3b8; margin-bottom: 10px; }
+.conn-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.conn-table th, .conn-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.conn-table th { color: #94a3b8; font-weight: 500; font-size: 12px; }
+.conn-table td { color: #e2e8f0; }
+.conn-ok { color: #34d399 !important; font-weight: 600; }
+.conn-fail { color: #f87171 !important; font-weight: 500; }
+.conn-unknown { color: #94a3b8 !important; }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+/* ⭐ 数据获取状态灯（顶部显眼卡片） */
+.data-status-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 20px; margin-bottom: 16px; }
+.data-status-row { display: flex; align-items: center; justify-content: space-between; }
+.data-status-left { display: flex; align-items: center; gap: 12px; }
+.data-status-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; background: #64748b; animation: pulse 2s infinite; }
+.data-status-dot.ok { background: #10b981; box-shadow: 0 0 8px rgba(16,185,129,0.6); }
+.data-status-dot.warn { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.6); animation: pulse 1s infinite; }
+.data-status-dot.err { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.6); animation: pulse 0.8s infinite; }
+.data-status-text { font-size: 15px; font-weight: 600; color: #e2e8f0; }
+.data-status-time { font-size: 13px; color: #94a3b8; }
+
+@media (max-width: 500px) { .big-price { font-size: 36px; } .ema-item-value { font-size: 20px; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ⭐ 数据获取状态指示灯（顶部最显眼） -->
+  <div class="data-status-card" id="data-status-card">
+    <div class="data-status-row">
+      <div class="data-status-left">
+        <span class="data-status-dot" id="data-status-dot"></span>
+        <span class="data-status-text" id="data-status-text">检测中...</span>
+      </div>
+      <div class="data-status-time" id="data-status-time">等待数据...</div>
+    </div>
+  </div>
+
+  <!-- 价格卡片 -->
+  <div class="price-card">
+    <div class="price-label">ETH / USDT 实时价格</div>
+    <div class="big-price" id="big-price">${{ '{:,.2f}'.format(latest_price) if latest_price else '加载中...' }}</div>
+    <div class="price-time"><span class="status-dot" id="live-dot"></span>EMA{{ ema_short }} · EMA{{ ema_long }} · <span id="last-update">实时更新中</span></div>
+  </div>
+
+  <!-- 系统连接状态 -->
+  <div class="conn-card" id="conn-card" style="cursor:pointer;" onclick="toggleSources()">
+    <div class="conn-row">
+      <div class="conn-status" id="conn-status">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span class="conn-label" id="conn-label">检测中...</span>
+        <span style="color:#94a3b8; font-size:12px; margin-left:10px;" id="countdown-text">下次刷新：5秒</span>
+      </div>
+      <div class="conn-detail" id="conn-detail">正在初始化（点击查看数据源详情）</div>
+    </div>
+    <div class="conn-sources" id="conn-sources" style="display:none;">
+      <div class="conn-sources-title">各数据源状态（点击卡片可收起）</div>
+      <table class="conn-table" id="conn-table">
+        <thead><tr><th>数据源</th><th>状态</th><th>消息</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 测试按钮：一键发送模拟预警邮件 -->
+  <div class="conn-card" style="margin-top: 12px; padding: 14px 18px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25);">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+      <div>
+        <div style="font-size: 14px; font-weight: 600; color: #e2e8f0;">🔔 测试预警邮件</div>
+        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">点击发送一封模拟预警邮件，测试手机 MacroDroid 能否触发闹钟</div>
+      </div>
+      <button id="test-alert-btn" class="nav-btn" style="padding: 10px 18px; font-size: 14px; background: rgba(99, 102, 241, 0.25); color: #fff; border: 1px solid rgba(99, 102, 241, 0.5); cursor: pointer;">
+        发送测试预警邮件
+      </button>
+    </div>
+    <div id="test-alert-result" style="margin-top: 10px; font-size: 12px; color: #94a3b8;"></div>
+  </div>
+
+  <!-- 周期标签 -->
+  <div class="tabs">
+    {% for tf in timeframes %}
+    <div class="tab {% if tf == default_tf %}active{% endif %} {% if tf in enabled_tfs %}alert-on{% endif %}" data-tf="{{ tf }}" id="tab-{{ tf }}">
+      {{ tf_labels[tf] }}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- EMA卡片（每个周期一个）-->
+  {% for tf in timeframes %}
+  {% set s = tf_states[tf] %}
+  <div id="panel-{{ tf }}" class="ema-card" style="display: {% if tf == default_tf %}block{% else %}none{% endif %};">
+    <span class="signal-badge {% if s.in_zone %}signal-zone{% else %}signal-out{% endif %}" id="signal-{{ tf }}">
+      {% if s.in_zone %}{% if s.arrangement_text and '多头' in s.arrangement_text %}开多{% else %}开空{% endif %}{% else %}价格不在EMA区间内{% endif %}
+    </span>
+    <div class="ema-grid">
+      <div class="ema-item">
+        <div class="ema-item-label">EMA{{ ema_short }}</div>
+        <div class="ema-item-value hl-color" id="ema-short-{{ tf }}">${{ '{:,.2f}'.format(s.ema_short) }}</div>
+      </div>
+      <div class="ema-item">
+        <div class="ema-item-label">EMA{{ ema_long }}</div>
+        <div class="ema-item-value ll-color" id="ema-long-{{ tf }}">${{ '{:,.2f}'.format(s.ema_long) }}</div>
+      </div>
+    </div>
+    <div class="info-row"><span class="info-label">均线排列</span><span class="info-value" id="arrangement-{{ tf }}">{{ s.arrangement_text }}</span></div>
+    <div class="info-row"><span class="info-label">状态</span><span class="info-value" id="status-{{ tf }}" style="color:#f59e0b;">{% if s.in_zone %}✅ 价格在EMA区间内{% else %}⚪ 价格不在区间内{% endif %}</span></div>
+    <div class="info-row"><span class="info-label">更新时间</span><span class="info-value" id="time-{{ tf }}">{{ s.update_time }}</span></div>
+    <div class="info-row"><span class="info-label">数据源</span><span class="info-value" id="data-source-{{ tf }}" style="font-size: 12px; color: #94a3b8;">{{ s.data_source or 'loading' }}</span></div>
+    <div class="info-row"><span class="info-label">预警</span><span class="info-value" id="alert-status-{{ tf }}" style="color:{% if tf in enabled_tfs %}#34d399{% else %}#64748b{% endif %};">{% if tf in enabled_tfs %}🔔 已启用{% else %}未启用{% endif %}</span></div>
+  </div>
+  {% endfor %}
+
+  <!-- 价格区间预警设置 -->
+  <div class="history-card" style="margin-top: 20px;">
+    <div class="history-title" style="display: flex; justify-content: space-between; align-items: center;">
+      📊 价格区间预警
+      <button class="nav-btn" style="padding: 6px 12px; font-size: 13px; margin: 0;" onclick="addPriceRange()">+ 新增区间</button>
+    </div>
+    <div id="price-ranges-list">
+      <!-- 动态生成 -->
+    </div>
+  </div>
+
+  <!-- 最近预警 -->
+  <div class="history-card">
+    <div class="history-title" style="display: flex; justify-content: space-between; align-items: center;">
+      🔔 最近预警
+      <button class="nav-btn" style="padding: 6px 12px; font-size: 13px; margin: 0;" onclick="clearAllAlerts()">清空</button>
+    </div>
+    <div id="alerts-list">
+      {% if recent_alerts %}
+        {% for a in recent_alerts %}
+        <div class="alert-item">
+          <div>
+            <div class="alert-signal" style="color:{% if '开多' in a.signal %}#34d399{% elif '开空' in a.signal %}#f87171{% else %}#f59e0b{% endif %};">
+              [{{ a.timeframe }}] {{ a.signal }}{% if a.note %} · {{ a.note }}{% endif %}
+            </div>
+            <div class="alert-time">{{ a.time }}</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="alert-price">${{ '{:,.2f}'.format(a.price) }}</span>
+            <button class="nav-btn" style="padding: 4px 10px; font-size: 12px;" onclick="deleteAlert('{{ a.timeframe }}', {{ a.price }}, {{ a.timestamp if a.timestamp is defined else 0 }})">删除</button>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">暂无预警记录<br><span style="font-size:12px;">系统正在监控中...</span></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="nav">
+    <a href="{{ url_for('dashboard') }}" class="nav-btn active">📊 仪表盘</a>
+    <a href="{{ url_for('settings') }}" class="nav-btn">⚙️ 设置</a>
+    <a href="{{ url_for('history_page') }}" class="nav-btn">📝 历史</a>
+  </div>
+
+</div>
+
+<script>
+// 存储上一次的价格用于判断涨跌
+var lastPrice = null;
+var currentTf = document.querySelector('.tab.active') ? document.querySelector('.tab.active').getAttribute('data-tf') : '15m';
+var _currentPriceRanges = [];
+var _countdown = 5;
+var _sourcesExpanded = false;
+
+// 初始化价格区间（后端渲染时传入）
+_currentPriceRanges = {{ price_ranges_json | safe }} || [];
+
+// 数据源展开/收起
+function toggleSources() {
+    var panel = document.getElementById('conn-sources');
+    if (!panel) return;
+    _sourcesExpanded = !_sourcesExpanded;
+    panel.style.display = _sourcesExpanded ? 'block' : 'none';
+}
+
+// 一键发送测试预警邮件（测试 MacroDroid 闹钟）— 返回JSON，显示真实错误
+document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('test-alert-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        var resultEl = document.getElementById('test-alert-result');
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+        if (resultEl) {
+            resultEl.textContent = '正在发送（20秒内超时会自动返回）...';
+            resultEl.style.color = '#94a3b8';
+        }
+        fetch('{{ url_for("test_alert_email") }}', { method: 'POST' })
+            .then(function(r) {
+                return r.json().catch(function() { return { success: false, error: '服务器返回异常结果' }; });
+            })
+            .then(function(data) {
+                btn.disabled = false;
+                btn.textContent = '发送测试预警邮件';
+                if (resultEl) {
+                    if (data.success) {
+                        resultEl.innerHTML = data.message;
+                        resultEl.style.color = '#34d399';
+                    } else {
+                        resultEl.innerHTML = '❌ 发送失败：<b>' + data.error + '</b>' + (data.detail ? '<br><span style="color:#94a3b8;font-size:11px;">' + data.detail + '</span>' : '');
+                        resultEl.style.color = '#f87171';
+                    }
+                }
+            })
+            .catch(function(err) {
+                btn.disabled = false;
+                btn.textContent = '发送测试预警邮件';
+                if (resultEl) {
+                    resultEl.innerHTML = '❌ 请求失败：' + err;
+                    resultEl.style.color = '#f87171';
+                }
+            });
+    });
+});
+
+// 更新倒计时显示
+function updateCountdown() {
+    var el = document.getElementById('countdown-text');
+    if (el) el.textContent = '下次刷新：' + _countdown + '秒';
+}
+
+// 1. 周期切换
+function setupTabs() {
+    var tabs = document.querySelectorAll('.tab');
+    tabs.forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            var tf = this.getAttribute('data-tf');
+            currentTf = tf;
+            tabs.forEach(function(t) { t.classList.remove('active'); });
+            this.classList.add('active');
+            document.querySelectorAll('.ema-card').forEach(function(p) { p.style.display = 'none'; });
+            var panel = document.getElementById('panel-' + tf);
+            if (panel) panel.style.display = 'block';
+        });
+    });
+}
+
+// 2. 数据刷新
+function refreshData() {
+    var url = '/api/state?_=' + Date.now();
+    fetch(url, { method: 'GET', cache: 'no-store', headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        // 更新顶部价格
+        if (data.price) {
+            var el = document.getElementById('big-price');
+            if (el) {
+                var newVal = '$' + Number(data.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (el.textContent !== newVal) {
+                    if (lastPrice !== null) {
+                        if (data.price > lastPrice) el.classList.add('price-flash-up');
+                        else if (data.price < lastPrice) el.classList.add('price-flash-down');
+                    } else {
+                        el.classList.add('price-flash');
+                    }
+                    el.textContent = newVal;
+                    setTimeout(function() { el.classList.remove('price-flash', 'price-flash-up', 'price-flash-down'); }, 1000);
+                    lastPrice = data.price;
+                }
+            }
+        }
+
+        // 更新"最后更新时间"
+        var now = new Date();
+        var lastUpd = document.getElementById('last-update');
+        if (lastUpd) lastUpd.textContent = '更新于 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+
+        // 更新各周期数据
+        for (var tf in data.states) {
+            var s = data.states[tf];
+            var esEl = document.getElementById('ema-short-' + tf);
+            if (esEl) {
+                var esVal = '$' + Number(s.ema_short).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (esEl.textContent !== esVal) {
+                    esEl.textContent = esVal;
+                    esEl.classList.add('updated-flash');
+                    (function(el) { setTimeout(function() { el.classList.remove('updated-flash'); }, 1000); })(esEl);
+                }
+            }
+            var elEl = document.getElementById('ema-long-' + tf);
+            if (elEl) {
+                var elVal = '$' + Number(s.ema_long).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (elEl.textContent !== elVal) {
+                    elEl.textContent = elVal;
+                    elEl.classList.add('updated-flash');
+                    (function(el) { setTimeout(function() { el.classList.remove('updated-flash'); }, 1000); })(elEl);
+                }
+            }
+            var arrEl = document.getElementById('arrangement-' + tf);
+            if (arrEl && arrEl.textContent !== s.arrangement_text) arrEl.textContent = s.arrangement_text;
+
+            var statusEl = document.getElementById('status-' + tf);
+            if (statusEl) {
+                var newStatus = s.in_zone ? '✅ 价格在EMA区间内' : '⚪ 价格不在区间内';
+                if (statusEl.textContent !== newStatus) statusEl.textContent = newStatus;
+                statusEl.style.color = s.in_zone ? '#34d399' : '#f59e0b';
+            }
+            var badgeEl = document.getElementById('signal-' + tf);
+            if (badgeEl) {
+                var bull = s.arrangement_text && s.arrangement_text.indexOf('多头') !== -1;
+                var newBadgeText = s.in_zone ? (bull ? '开多' : '开空') : '价格不在EMA区间内';
+                if (badgeEl.textContent !== newBadgeText) badgeEl.textContent = newBadgeText;
+                if (s.in_zone) {
+                    badgeEl.classList.remove('signal-out');
+                    badgeEl.classList.add('signal-zone');
+                } else {
+                    badgeEl.classList.remove('signal-zone');
+                    badgeEl.classList.add('signal-out');
+                }
+            }
+            var timeEl = document.getElementById('time-' + tf);
+            if (timeEl) timeEl.textContent = s.update_time || '';
+
+            var dsEl = document.getElementById('data-source-' + tf);
+            if (dsEl) {
+                var dsText = s.data_source || 'unknown';
+                if (dsText === 'binance_spot') dsText = 'Binance 现货';
+                else if (dsText === 'binance_futures') dsText = 'Binance 合约';
+                else if (dsText === 'gateio') dsText = 'Gate.io';
+                else if (dsText === 'kucoin') dsText = 'KuCoin';
+                else if (dsText === 'coingecko') dsText = 'CoinGecko';
+                else if (dsText === 'synthetic') dsText = '⚠️ 合成数据（API不通）';
+                dsEl.textContent = dsText;
+                dsEl.style.color = (s.data_source === 'synthetic') ? '#f59e0b' : '#94a3b8';
+            }
+            var alertStatusEl = document.getElementById('alert-status-' + tf);
+            if (alertStatusEl) {
+                var newAlertText = s.enabled ? '🔔 已启用' : '未启用';
+                if (alertStatusEl.textContent !== newAlertText) alertStatusEl.textContent = newAlertText;
+                alertStatusEl.style.color = s.enabled ? '#34d399' : '#64748b';
+            }
+            var tabEl = document.getElementById('tab-' + tf);
+            if (tabEl) {
+                if (s.enabled) tabEl.classList.add('alert-on');
+                else tabEl.classList.remove('alert-on');
+            }
+        }
+
+        // 连接状态
+        var conn = data.connection || { level: 'offline', label: '未知', detail: '无数据' };
+        var dot = document.getElementById('conn-dot');
+        var label = document.getElementById('conn-label');
+        var detail = document.getElementById('conn-detail');
+        if (dot) dot.className = 'conn-dot ' + conn.level;
+        if (label) label.textContent = conn.label;
+        if (detail) detail.textContent = conn.detail + '（点击查看数据源详情）';
+
+        // 数据源详情表
+        var tableBody = document.querySelector('#conn-table tbody');
+        if (tableBody) {
+            var srcNameMap = {
+                'gateio': 'Gate.io',
+                'binance_spot': 'Binance 现货',
+                'binance_futures': 'Binance 合约',
+                'kucoin': 'KuCoin',
+                'coingecko': 'CoinGecko',
+                'synthetic': '合成数据'
+            };
+            var rows = '';
+            if (data.source_health) {
+                for (var k in data.source_health) {
+                    var h = data.source_health[k];
+                    var statusText = h.status === 'ok' ? '<span style="color:#34d399;">✅ 正常</span>' :
+                                      h.status === 'fail' ? '<span style="color:#f87171;">❌ 失败</span>' :
+                                      '<span style="color:#94a3b8;">未检测</span>';
+                    rows += '<tr><td style="text-align:left;">' + (srcNameMap[k] || k) + '</td><td>' + statusText + '</td><td style="text-align:right; color:#94a3b8;">' + (h.message || '-') + '</td></tr>';
+                }
+            }
+            tableBody.innerHTML = rows;
+        }
+
+        // 重置倒计时
+        _countdown = 5;
+        updateCountdown();
+
+        // 顶部指示灯
+        var dDot = document.getElementById('data-status-dot');
+        var dText = document.getElementById('data-status-text');
+        var dTime = document.getElementById('data-status-time');
+        if (dDot && dText && dTime) {
+            var dLevel = 'offline';
+            var dLabel = '🔴 数据获取失败';
+            var dCount = 0;
+            if (data.states) {
+                for (var t in data.states) {
+                    var ss = data.states[t];
+                    if (ss && ss.data_source && ss.data_source !== '' && ss.data_source.indexOf('synthetic') === -1) dCount++;
+                }
+            }
+            if (data.price && dCount >= 2) { dLevel = 'ok'; dLabel = '✅ 数据正常（交易所实时）'; }
+            else if (data.price) { dLevel = 'warn'; dLabel = '⚠️ 数据更新中（部分数据源可用）'; }
+            else { dLevel = 'err'; dLabel = '🔴 无数据（正在重试连接交易所）'; }
+            dDot.className = 'data-status-dot ' + dLevel;
+            dText.textContent = dLabel;
+            dTime.textContent = '更新于 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+        }
+
+        // 同步最新价格区间配置
+        if (data.price_ranges && Array.isArray(data.price_ranges)) {
+            _currentPriceRanges = data.price_ranges;
+            renderPriceRanges();
+        }
+    })
+    .catch(function(err) {
+        console.error('刷新失败:', err);
+        var dDot = document.getElementById('data-status-dot');
+        var dText = document.getElementById('data-status-text');
+        if (dDot && dText) {
+            dDot.className = 'data-status-dot err';
+            dText.textContent = '🔴 网络连接失败（正在重试）';
+        }
+    });
+}
+
+// === 价格区间渲染 ===
+function renderPriceRanges() {
+    var container = document.getElementById('price-ranges-list');
+    if (!container) return;
+    if (!_currentPriceRanges || _currentPriceRanges.length === 0) {
+        container.innerHTML = '<div class="empty">暂无价格区间<br><span style="font-size:12px;">点击右上角"+新增区间"设置价格预警</span></div>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < _currentPriceRanges.length; i++) {
+        var pr = _currentPriceRanges[i];
+        html += '<div class="alert-item" style="background: rgba(0,0,0,0.2);">';
+        html += '<div>';
+        html += '<div class="alert-signal" style="color:#60a5fa; font-size:14px;">' + (pr.name || ('区间' + (i+1))) + '</div>';
+        html += '<div class="alert-time">$' + Number(pr.low).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ~ $' + Number(pr.high).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex; align-items:center; gap:10px;">';
+        html += '<label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#cbd5e1;">';
+        html += '<input type="checkbox" ' + (pr.enabled ? 'checked' : '') + ' onchange="togglePriceRange(' + i + ')" /> 启用';
+        html += '</label>';
+        html += '<button class="nav-btn" style="padding:4px 10px; font-size:12px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.3); color:#fca5a5;" onclick="removePriceRange(' + i + ')">删除</button>';
+        html += '</div>';
+        html += '</div>';
+    }
+    container.innerHTML = html;
+}
+
+function addPriceRange() {
+    var name = prompt('区间名称（例如：1650-1700）：', '自定义区间');
+    if (!name || name.trim() === '') return;
+    var low = parseFloat(prompt('下限价格（美元）：', '1600'));
+    if (isNaN(low) || low <= 0) return alert('请输入有效的下限价格');
+    var high = parseFloat(prompt('上限价格（美元）：', '1700'));
+    if (isNaN(high) || high <= low) return alert('上限必须大于下限');
+
+    var newRange = { name: name.trim(), low: low, high: high, enabled: true };
+    var data = { action: 'add', range: newRange };
+    fetch('/api/price_ranges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(function(r) { return r.json(); })
+      .then(function(res) {
+          if (res.success) {
+              _currentPriceRanges = res.price_ranges || [];
+              renderPriceRanges();
+              alert('✅ 已添加价格区间：' + name);
+          } else {
+              alert('添加失败：' + (res.error || '未知错误'));
+          }
+      }).catch(function(err) { alert('请求失败：' + err); });
+}
+
+function togglePriceRange(idx) {
+    var data = { action: 'toggle', index: idx };
+    fetch('/api/price_ranges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(function(r) { return r.json(); })
+      .then(function(res) {
+          if (res.success) {
+              _currentPriceRanges = res.price_ranges || [];
+              renderPriceRanges();
+          } else {
+              alert('操作失败：' + (res.error || '未知错误'));
+          }
+      });
+}
+
+function removePriceRange(idx) {
+    if (!confirm('确定删除这个价格区间？')) return;
+    var data = { action: 'remove', index: idx };
+    fetch('/api/price_ranges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(function(r) { return r.json(); })
+      .then(function(res) {
+          if (res.success) {
+              _currentPriceRanges = res.price_ranges || [];
+              renderPriceRanges();
+          } else {
+              alert('删除失败：' + (res.error || '未知错误'));
+          }
+      });
+}
+
+// === 预警删除 ===
+function deleteAlert(tf, price, ts) {
+    if (!confirm('确定删除这条预警？')) return;
+    fetch('/api/alerts/' + ts, { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                alert('✅ 已删除');
+                location.reload();
+            } else {
+                alert('删除失败：' + (res.error || '未知错误'));
+            }
+        });
+}
+
+function clearAllAlerts() {
+    if (!confirm('确定清空所有预警记录？此操作不可恢复')) return;
+    fetch('/api/alerts/clear', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                alert('✅ 已清空');
+                location.reload();
+            } else {
+                alert('操作失败：' + (res.error || '未知错误'));
+            }
+        });
+}
+
+// 页面加载
+document.addEventListener('DOMContentLoaded', function() {
+    setupTabs();
+    renderPriceRanges();
+    updateCountdown();
+    refreshData();
+    setInterval(refreshData, 5000);
+    setInterval(function() {
+        _countdown--;
+        if (_countdown < 1) _countdown = 5;
+        updateCountdown();
+    }, 1000);
+});
+</script>
+</body>
+</html>
