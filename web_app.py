@@ -264,7 +264,7 @@ def test_alert_email():
         cfg = mon.load_config()
         email_cfg = cfg.get('email', {})
         if not email_cfg.get('smtp_server') or not email_cfg.get('to_email') or not email_cfg.get('from_email') or not email_cfg.get('password'):
-            return {'success': False, 'error': '邮箱配置不完整，请在 Render 的 Environment 中设置 ALERT_FROM_EMAIL/ALERT_TO_EMAIL/ALERT_EMAIL_PASSWORD/ALERT_SMTP_SERVER'}
+            return jsonify({'success': False, 'error': '邮箱配置不完整，请在 Render 的 Environment 中设置 ALERT_FROM_EMAIL/ALERT_TO_EMAIL/ALERT_EMAIL_PASSWORD/ALERT_SMTP_SERVER'})
 
         import smtplib, ssl
         from email.mime.text import MIMEText
@@ -330,12 +330,12 @@ def test_alert_email():
                 server.sendmail(from_addr, [to_addr], msg.as_string())
 
         mon.logger.info('✅ 测试预警邮件已发送: %s' % subject)
-        return {'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱（约1-5分钟收到），MacroDroid 会检测到并触发闹钟。'}
+        return jsonify({'success': True, 'message': '✅ 邮件发送成功！请检查手机QQ邮箱（约1-5分钟收到），MacroDroid 会检测到并触发闹钟。'})
     except Exception as e:
         import traceback
         err_detail = traceback.format_exc()
         mon.logger.error('测试预警邮件发送失败: %s\n%s' % (e, err_detail))
-        return {'success': False, 'error': str(e), 'detail': err_detail.splitlines()[-1] if err_detail else str(e)}
+        return jsonify({'success': False, 'error': str(e), 'detail': err_detail.splitlines()[-1] if err_detail else str(e)})
 
 
 @app.route('/history')
