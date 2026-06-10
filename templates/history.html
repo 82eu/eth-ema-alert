@@ -6,15 +6,9 @@
 <title>预警历史 - ETH EMA 预警</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
-  min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #e2e8f0;
-  padding: 20px;
-}
+body { background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e2e8f0; padding: 20px; }
 .container { max-width: 600px; margin: 0 auto; }
-h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; }
+h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
 
 .alert-card {
   background: rgba(255,255,255,0.05);
@@ -23,101 +17,55 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; }
   padding: 16px;
   margin-bottom: 10px;
 }
-.alert-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.tf-badge {
-  padding: 4px 10px;
-  background: rgba(99,102,241,0.25);
-  color: #a5b4fc;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
+.alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.tf-badge { padding: 4px 10px; background: rgba(99,102,241,0.25); color: #a5b4fc; border-radius: 8px; font-size: 13px; font-weight: 600; }
 .alert-price-big { font-size: 20px; font-weight: 700; color: #fbbf24; }
-.alert-info {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  font-size: 13px;
-}
-.info-cell {
-  background: rgba(0,0,0,0.25);
-  padding: 8px 10px;
-  border-radius: 8px;
-}
+.alert-signal-row { margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+.alert-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; }
+.info-cell { background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 8px; }
 .info-label { color: #94a3b8; font-size: 11px; margin-bottom: 2px; }
 .info-val { color: #fff; font-weight: 600; font-size: 14px; }
 .alert-time { text-align: right; font-size: 12px; color: #64748b; margin-top: 8px; }
-.empty {
-  text-align: center;
-  color: #64748b;
-  padding: 60px 20px;
-  font-size: 15px;
-  background: rgba(255,255,255,0.05);
-  border-radius: 16px;
-}
-.nav {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 24px;
-}
-.nav-btn {
-  padding: 10px 20px;
-  background: rgba(255,255,255,0.05);
-  color: #cbd5e1;
-  text-decoration: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1px solid rgba(255,255,255,0.1);
-}
+.empty { text-align: center; color: #64748b; padding: 60px 20px; font-size: 15px; background: rgba(255,255,255,0.05); border-radius: 16px; }
+.nav { display: flex; justify-content: center; gap: 10px; margin-top: 24px; }
+.nav-btn { padding: 10px 20px; background: rgba(255,255,255,0.05); color: #cbd5e1; text-decoration: none; border-radius: 10px; font-size: 14px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; }
 .nav-btn.active { background: rgba(99,102,241,0.3); color: #fff; border-color: #6366f1; }
+.del-btn { padding: 6px 12px; background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.action-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>📝 预警历史</h1>
+  <h1>📝 预警历史 <button class="nav-btn" style="font-size:13px; padding:6px 12px; margin:0;" onclick="clearAll()">清空全部</button></h1>
 
   {% if alerts %}
     {% for a in alerts %}
     <div class="alert-card">
       <div class="alert-header">
-        <span class="tf-badge">{{ a.timeframe }}</span>
+        <span class="tf-badge">{{ a.timeframe }}{% if a.alert_type and a.alert_type != 'ema_zone' %} · 价格区间{% endif %}</span>
         <span class="alert-price-big">${{ '{:,.2f}'.format(a.price) }}</span>
+      </div>
+      <div class="alert-signal-row" style="color:{% if '开多' in a.signal %}#34d399{% elif '开空' in a.signal %}#f87171{% else %}#cbd5e1{% endif %};">
+        🎯 {{ a.signal }}{% if a.note %} · {{ a.note }}{% endif %}
       </div>
       <div class="alert-info">
         <div class="info-cell">
-          <div class="info-label">EMA180</div>
+          <div class="info-label">EMA 快线</div>
           <div class="info-val">${{ '{:,.2f}'.format(a.ema_short) }}</div>
         </div>
         <div class="info-cell">
-          <div class="info-label">EMA250</div>
+          <div class="info-label">EMA 慢线</div>
           <div class="info-val">${{ '{:,.2f}'.format(a.ema_long) }}</div>
         </div>
-        <div class="info-cell">
-          <div class="info-label">信号</div>
-          <div class="info-val" style="color: {% if '开多' in a.signal %}#34d399{% elif '开空' in a.signal %}#f87171{% else %}#cbd5e1{% endif %};">
-            {% if '开多' in a.signal %}✅ 在EMA区间内 · 开多方向{% elif '开空' in a.signal %}✅ 在EMA区间内 · 开空方向{% else %}不在区间内{% endif %}
-          </div>
-        </div>
-        <div class="info-cell">
-          <div class="info-label">位置</div>
-          <div class="info-val">{% if a.position == 'between' %}在EMA区间内{% elif a.position == 'above' %}在双EMA上方{% else %}在双EMA下方{% endif %}</div>
-        </div>
       </div>
-      <div class="alert-time">{{ a.time }}</div>
+      <div class="action-row">
+        <span class="alert-time" style="margin-top:0;">{{ a.time }}</span>
+        <button class="del-btn" onclick="deleteAlert({{ a.timestamp }})">删除</button>
+      </div>
     </div>
     {% endfor %}
   {% else %}
-    <div class="empty">
-      暂无预警记录<br>
-      <span style="font-size: 13px;">系统正在监控，价格进入EMA区间时会自动记录</span>
-    </div>
+    <div class="empty">暂无预警记录<br><span style="font-size: 13px;">系统正在监控，价格进入EMA区间时会自动记录</span></div>
   {% endif %}
 
   <div class="nav">
@@ -126,5 +74,27 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; }
     <a href="{{ url_for('history_page') }}" class="nav-btn active">📝 历史</a>
   </div>
 </div>
+
+<script>
+function deleteAlert(ts) {
+    if (!confirm('确定删除这条预警？')) return;
+    fetch('/api/alerts/' + ts, { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) { location.reload(); }
+            else { alert('删除失败：' + (res.error || '未知错误')); }
+        });
+}
+
+function clearAll() {
+    if (!confirm('确定清空所有预警记录？此操作不可恢复')) return;
+    fetch('/api/alerts/clear', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) { location.reload(); }
+            else { alert('操作失败：' + (res.error || '未知错误')); }
+        });
+}
+</script>
 </body>
 </html>
