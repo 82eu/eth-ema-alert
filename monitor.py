@@ -54,6 +54,12 @@ def _register_source(name, func):
     _DATA_SOURCES.append((name, func))
 
 
+def _beijing_now():
+    """返回北京时间（UTC+8）的 datetime。"""
+    from datetime import timedelta
+    return datetime.now() + timedelta(hours=8)
+
+
 def _validate_klines(klines):
     """简单校验：最后一根 K线与前 10 根均值偏差超过 30% 视为数据异常。返回 True/False。"""
     if not isinstance(klines, list) or len(klines) < 15:
@@ -164,9 +170,38 @@ def _source_coingecko(tf, limit):
     return None
 
 
+def _source_okx(tf, limit):
+    """OKX K线（新数据源，海外服务器推荐）"""
+    OKX_BAR_MAP = {'5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '4h': '4H'}
+    url = 'https://www.okx.com/api/v5/market/candles'
+    params = {'instId': 'ETH-USDT', 'bar': OKX_BAR_MAP.get(tf, '1H'), 'limit': str(max(limit, 300))}
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+    last_err = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=10,
+                                proxies={'http': None, 'https': None})
+            if resp.status_code == 200:
+                wrapper = resp.json()
+                raw = wrapper.get('data', []) if isinstance(wrapper, dict) else []
+                if isinstance(raw, list) and len(raw) >= 10:
+                    klines = [[float(k[1]), float(k[2]), float(k[3]), float(k[4])]
+                              for k in raw if len(k) >= 5]
+                    klines.reverse()
+                    if _validate_klines(klines):
+                        return klines
+        except Exception as e:
+            last_err = e
+        time.sleep(0.5)
+    if last_err:
+        logger.warning(f"[{tf}] OKX 失败: {last_err}")
+    return None
+
+
 # 注册数据源（只保留真实交易所）
 _register_source('gateio', _source_gateio)              # 第一优先
 _register_source('binance_spot', _source_binance_spot)  # 次选
+_register_source('okx', _source_okx)                    # 新添：OKX
 _register_source('kucoin', _source_kucoin)              # 备用
 _register_source('coingecko', _source_coingecko)        # 备用
 
@@ -443,7 +478,7 @@ def analyze(tf, klines, ema_short, ema_long):
         'signal': signal,
         'signal_text': signal_text,
         'in_zone': (position == 'between'),
-        'update_time': datetime.now().strftime('%H:%M:%S'),
+        'update_time': _beijing_now().strftime('%H:%M:%S'),
         'data_count': len(klines),
         'data_source': _last_source.get(tf, 'unknown'),
     }
@@ -692,17 +727,9 @@ def update_all_data():
 
         # ===== 定时价格推送（每4小时一次）=====
         try:
-            should_push, hour = _should_push_price_now()
-            if should_push:
-                logger.info(f"⏰ 到了 {hour:02d}:00 推送时间，正在推送价格到飞书...")
-                push_ok = _push_price_to_feishu(cfg)
-                if push_ok:
-                    _last_price_push_hour = hour
-                    logger.info(f"✅ {hour:02d}:00 价格推送已完成")
-                else:
-                    # 推送失败时，重置标记，让下次循环再尝试
-                    logger.warning(f"⚠️  {hour:02d}:00 价格推送失败，稍后重试")
-                    pass
+            if _should_push_price_now():
+                logger.info(f"⏰ 到达推送时间，正在推送价格到飞书...")
+                _push_price_to_feishu(cfg)
         except Exception as e:
             logger.warning(f"定时价格推送出错: {e}")
 
@@ -725,31 +752,42 @@ def _recover_last_alert_time():
 
 
 # ============ 定时价格推送（每4小时一次）============
+def _load_last_push_time():
+    """从文件读取上次推送时间。"""
+    try:
+        path = os.path.join(BASE_DIR, 'last_price_push.json')
+        if not os.path.exists(path):
+            return 0
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return float(data.get('last_push_ts', 0))
+    except Exception:
+        return 0
+
+
+def _save_last_push_time(ts):
+    """保存上次推送时间到文件。"""
+    try:
+        path = os.path.join(BASE_DIR, 'last_price_push.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'last_push_ts': ts}, f)
+    except Exception:
+        pass
+
+
 def _should_push_price_now():
-    """判断当前是否到了推送时间。
-    以服务器本地时间计算：
-      - 从 08:00 开始，每 4 小时一次（08, 12, 16, 20, 00, 04）
-      - 在这些整点的前 2 分钟内，且尚未推送过该小时段
-    """
-    now = datetime.now()
-    hour = now.hour
-    minute = now.minute
-    # 目标小时：0, 4, 8, 12, 16, 20
-    if hour % 4 != 0:
-        return False, -1
-    # 在整点的 0-10 分钟内触发（给数据更新留时间）
-    if minute > 10:
-        return False, -1
-    global _last_price_push_hour
-    if _last_price_push_hour == hour:
-        return False, -1
-    return True, hour
+    """判断是否到了推送时间：距离上次推送 >= 4 小时。"""
+    now_ts = time.time()
+    last_ts = _load_last_push_time()
+    # 4 小时 = 4 * 3600 秒
+    if now_ts - last_ts >= 4 * 3600 - 60:  # 留 60 秒容差
+        return True
+    return False
 
 
 def _push_price_to_feishu(cfg):
     """把当前价格推送到飞书。"""
     price = None
-    source_name = 'unknown'
     # 取最新可用的价格
     for tf in ['5m', '15m', '30m', '1h', '4h']:
         s = _state_cache.get(tf)
@@ -758,7 +796,6 @@ def _push_price_to_feishu(cfg):
                 p = float(s.get('price', 0))
                 if p > 0:
                     price = p
-                    source_name = s.get('data_source', 'unknown')
                     break
             except Exception:
                 continue
@@ -767,11 +804,13 @@ def _push_price_to_feishu(cfg):
         logger.warning("⚠️  定时推送：无有效价格，跳过")
         return False
 
+    bj_time = _beijing_now()
     subject = f"ETH 价格播报 · ${price:.2f}"
-    content = f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    content = f"更新时间: {bj_time.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)"
 
     ok = send_feishu(subject, content, cfg)
     if ok:
+        _save_last_push_time(time.time())
         logger.info(f"✅ 定时价格推送成功 - ${price:.2f}")
     else:
         logger.warning(f"⚠️  定时价格推送失败 - ${price:.2f}")
@@ -786,14 +825,17 @@ def run_monitor_loop():
 
     update_all_data()
 
-    # 启动时发一条通知到飞书
+    # 启动时发一条通知到飞书（仅启动当天第一次启动时）
     try:
         cfg = load_config()
         price = get_latest_price()
         if price:
+            bj_time = _beijing_now()
             subject = f"ETH 预警系统已启动 · ${price:.2f}"
-            content = f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n推送时间表: 08:00 / 12:00 / 16:00 / 20:00 / 00:00 / 04:00"
+            content = f"更新时间: {bj_time.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\n每隔 4 小时推送一次价格"
             send_feishu(subject, content, cfg)
+            # 启动通知也算一次推送，从此时开始计时 4 小时
+            _save_last_push_time(time.time())
     except Exception as e:
         logger.warning(f"启动通知失败: {e}")
 
